@@ -1,0 +1,24 @@
+# Never commit credentials or local configuration.
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+*.pem
+*.key
+
+# Generated builds and caches.
+.venv/
+venv/
+node_modules/
+dist/
+build/
+.dart_tool/
+.flutter-plugins-dependencies
+.idea/
+**/android/.gradle/
+**/android/local.properties
+__pycache__/
+.pytest_cache/
+*.py[cod]
