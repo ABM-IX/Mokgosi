@@ -111,6 +111,7 @@ npm run build
 ---
 
 ## Documentation Index
+- **Master System & Product Overview:** [`docs/SYSTEM_OVERVIEW.md`](docs/SYSTEM_OVERVIEW.md)
 - **Two-Pillar Architecture:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - **Threat Model & Survivor Safety:** [`docs/PRIVACY_AND_SAFETY.md`](docs/PRIVACY_AND_SAFETY.md)
 - **Partner Verification Checklist:** [`docs/PARTNERS_TODO.md`](docs/PARTNERS_TODO.md)
