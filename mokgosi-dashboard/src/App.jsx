@@ -9,12 +9,17 @@ import {
   postAcousticSimulation,
   postCctvSnapshot,
   postIncidentAudit,
+  fetchIncidentReferrals,
+  postIncidentReferral,
+  fetchSurvivorConsents,
 } from './lib/api.js';
 import HeaderBar from './components/HeaderBar.jsx';
-import IncidentQueue, { sortIncidentsByUrgency } from './components/IncidentQueue.jsx';
+import IncidentQueue, { isGbvIncident, sortIncidentsByUrgency } from './components/IncidentQueue.jsx';
 import TacticalMap from './components/TacticalMap.jsx';
 import CctvStreamModal from './components/CctvStreamModal.jsx';
 import EvidenceDocketModal from './components/EvidenceDocketModal.jsx';
+import GbvCaseView from './components/GbvCaseView.jsx';
+import HotspotsView from './components/HotspotsView.jsx';
 
 const NEXT_STATUS = {
   CREATED: 'ACKNOWLEDGED',
@@ -48,10 +53,15 @@ export default function App() {
   const [incidents, setIncidents] = useState([]);
   const [selected, setSelected] = useState(null);
   const [activeTab, setActiveTab] = useState('ACTIVE');
+  const [activePillar, setActivePillar] = useState('SAFER_COMMUNITIES');
+  const [saferSubView, setSaferSubView] = useState('TACTICAL_MAP'); // 'TACTICAL_MAP' | 'HOTSPOTS'
+
   const [cameras, setCameras] = useState([]);
   const [locations, setLocations] = useState([]);
   const [logs, setLogs] = useState([]);
   const [manifests, setManifests] = useState([]);
+  const [survivorConsents, setSurvivorConsents] = useState(null);
+  const [incidentReferralsList, setIncidentReferralsList] = useState([]);
   const [activeCameraModal, setActiveCameraModal] = useState(null);
   const [docketModalOpen, setDocketModalOpen] = useState(false);
 
@@ -143,6 +153,13 @@ export default function App() {
               const filtered = prev.filter((item) => item.id !== payload.new.id);
               return [payload.new, ...filtered];
             });
+
+            const isGbv = isGbvIncident(payload.new);
+            // Switch pillar automatically if critical GBV alert arrives
+            if (isGbv && payload.new.priority === 'P1_CRITICAL') {
+              setActivePillar('GBV_RESPONSE');
+            }
+
             if (payload.new.priority === 'P1_CRITICAL') {
               setSelected(payload.new);
               setActiveTab('ACTIVE');
@@ -170,7 +187,7 @@ export default function App() {
     };
   }, [refreshIncidents]);
 
-  // 4. Fetch & subscribe incrementally to selected incident context (`cameras`, `locations`, `manifests`, `audit_logs`)
+  // 4. Fetch & subscribe incrementally to selected incident context
   useEffect(() => {
     if (!selected) return undefined;
     let mounted = true;
@@ -178,6 +195,14 @@ export default function App() {
     if (sessionToken) {
       postIncidentAudit(selected.id, 'VIEW_INCIDENT', sessionToken);
     }
+
+    // Fetch consents & referrals for GBV context
+    fetchSurvivorConsents(selected.user_id, sessionToken).then((c) => {
+      if (mounted) setSurvivorConsents(c);
+    });
+    fetchIncidentReferrals(selected.id, sessionToken).then((res) => {
+      if (mounted) setIncidentReferralsList(res?.referrals || []);
+    });
 
     if (!supabase) return undefined;
 
@@ -265,13 +290,15 @@ export default function App() {
       mounted = false;
       supabase.removeChannel(detailChannel);
     };
-  }, [selected?.id, selected?.lat, selected?.lng, sessionToken]);
+  }, [selected?.id, selected?.lat, selected?.lng, selected?.user_id, sessionToken]);
 
-  // 5. Computed SLA metrics for HeaderBar
-  const { openP1Count, medianAckSeconds } = useMemo(() => {
-    const openP1 = incidents.filter(
-      (i) => i.priority === 'P1_CRITICAL' && i.status !== 'RESOLVED',
-    ).length;
+  // 5. Computed SLA metrics and Pillar counts for HeaderBar
+  const { openP1Count, medianAckSeconds, saferActiveCount, gbvActiveCount } = useMemo(() => {
+    const active = incidents.filter((i) => i.status !== 'RESOLVED');
+    const openP1 = active.filter((i) => i.priority === 'P1_CRITICAL').length;
+    const saferActive = active.filter((i) => !isGbvIncident(i)).length;
+    const gbvActive = active.filter((i) => isGbvIncident(i)).length;
+
     const ackDurations = incidents
       .filter((i) => i.created_at && i.acknowledged_at)
       .map((i) =>
@@ -292,8 +319,29 @@ export default function App() {
           ? ackDurations[mid]
           : Math.round((ackDurations[mid - 1] + ackDurations[mid]) / 2);
     }
-    return { openP1Count: openP1, medianAckSeconds: median };
+    return {
+      openP1Count: openP1,
+      medianAckSeconds: median,
+      saferActiveCount: saferActive,
+      gbvActiveCount: gbvActive,
+    };
   }, [incidents]);
+
+  function handlePillarChange(nextPillar) {
+    setActivePillar(nextPillar);
+    const activeInPillar = incidents
+      .filter((i) => i.status !== 'RESOLVED')
+      .filter((i) => (nextPillar === 'GBV_RESPONSE' ? isGbvIncident(i) : !isGbvIncident(i)));
+    const sorted = sortIncidentsByUrgency(activeInPillar);
+    if (sorted.length > 0) {
+      setSelected(sorted[0]);
+    } else {
+      const anyInPillar = incidents.filter((i) =>
+        nextPillar === 'GBV_RESPONSE' ? isGbvIncident(i) : !isGbvIncident(i),
+      );
+      setSelected(anyInPillar[0] || null);
+    }
+  }
 
   async function handleResponderSignIn(e) {
     e.preventDefault();
@@ -369,6 +417,14 @@ export default function App() {
     }
   }
 
+  async function handleRecordReferral(partnerId, notes) {
+    if (!selected || !sessionToken) return;
+    const res = await postIncidentReferral(selected.id, partnerId, notes, sessionToken);
+    if (res?.referral) {
+      setIncidentReferralsList((prev) => [res.referral, ...prev]);
+    }
+  }
+
   function handleOpenCameraModal(camera) {
     setActiveCameraModal(camera);
     if (selected && sessionToken) {
@@ -399,6 +455,8 @@ export default function App() {
       : selected.ai_context.model
     : 'NO MODEL INVOKED';
 
+  const isGbvSelected = selected && isGbvIncident(selected);
+
   return (
     <main className="command-app">
       <HeaderBar
@@ -415,6 +473,10 @@ export default function App() {
           if (next) playCriticalAlertTone();
         }}
         onSignOut={operatorId ? handleSignOut : null}
+        activePillar={activePillar}
+        onPillarChange={handlePillarChange}
+        saferCount={saferActiveCount}
+        gbvCount={gbvActiveCount}
       />
 
       {error && (
@@ -463,11 +525,33 @@ export default function App() {
           onSelect={(inc) => setSelected(inc)}
           activeTab={activeTab}
           onTabChange={setActiveTab}
+          activePillar={activePillar}
         />
 
         <section className="details" aria-label="Selected Incident Details">
-          {selected ? (
+          {activePillar === 'SAFER_COMMUNITIES' && saferSubView === 'HOTSPOTS' ? (
+            <HotspotsView onBackToLiveMap={() => setSaferSubView('TACTICAL_MAP')} />
+          ) : selected ? (
             <>
+              {activePillar === 'SAFER_COMMUNITIES' && (
+                <div className="subview-bar" role="tablist">
+                  <button
+                    type="button"
+                    className={`subview-btn ${saferSubView === 'TACTICAL_MAP' ? 'active' : ''}`}
+                    onClick={() => setSaferSubView('TACTICAL_MAP')}
+                  >
+                    Tactical Live Map
+                  </button>
+                  <button
+                    type="button"
+                    className={`subview-btn ${saferSubView === 'HOTSPOTS' ? 'active' : ''}`}
+                    onClick={() => setSaferSubView('HOTSPOTS')}
+                  >
+                    Community Hotspots &amp; Density (Aggregated)
+                  </button>
+                </div>
+              )}
+
               {selected.trigger_type === 'DURESS_PIN' && (
                 <div className="duress-banner" role="alert">
                   <strong>
@@ -558,77 +642,83 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="ai">
-                  <div>
-                    <b>
-                      AI Acoustic &amp; Sensor Context · Escalation Aid Only ({aiModelLabel})
-                    </b>
-                    <p>
-                      Status: {selected.ai_context?.status || 'AWAITING_OR_BYPASSED'} · Tags:{' '}
-                      {(selected.ai_context?.tags || []).join(', ') || 'No tags'}
-                      {selected.ai_context?.reason ? ` (${selected.ai_context.reason})` : ''}
-                    </p>
-                  </div>
-
-                  {DEMO_MODE && (
-                    <div className="actions">
-                      <button
-                        type="button"
-                        className="danger"
-                        disabled={!sessionToken}
-                        onClick={() => handleAcousticSimulation('DISTRESSED')}
-                      >
-                        DEMO: Distress Profile
-                      </button>
-                      <button
-                        type="button"
-                        className="muted"
-                        disabled={!sessionToken}
-                        onClick={() => handleAcousticSimulation('SILENT')}
-                      >
-                        DEMO: Silent Coercion
-                      </button>
-                      <button
-                        type="button"
-                        className="muted"
-                        disabled={!sessionToken}
-                        onClick={() => handleAcousticSimulation('CONVERSATION')}
-                      >
-                        DEMO: Conversation
-                      </button>
+                {!isGbvSelected && (
+                  <div className="ai">
+                    <div>
+                      <b>
+                        AI Acoustic &amp; Sensor Context · Escalation Aid Only ({aiModelLabel})
+                      </b>
+                      <p>
+                        Status: {selected.ai_context?.status || 'AWAITING_OR_BYPASSED'} · Tags:{' '}
+                        {(selected.ai_context?.tags || []).join(', ') || 'No tags'}
+                        {selected.ai_context?.reason ? ` (${selected.ai_context.reason})` : ''}
+                      </p>
                     </div>
-                  )}
-                </div>
+
+                    {DEMO_MODE && (
+                      <div className="actions">
+                        <button
+                          type="button"
+                          className="danger"
+                          disabled={!sessionToken}
+                          onClick={() => handleAcousticSimulation('DISTRESSED')}
+                        >
+                          DEMO: Distress Profile
+                        </button>
+                        <button
+                          type="button"
+                          className="muted"
+                          disabled={!sessionToken}
+                          onClick={() => handleAcousticSimulation('SILENT')}
+                        >
+                          DEMO: Silent Coercion
+                        </button>
+                        <button
+                          type="button"
+                          className="muted"
+                          disabled={!sessionToken}
+                          onClick={() => handleAcousticSimulation('CONVERSATION')}
+                        >
+                          DEMO: Conversation
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {(selected.category === 'GBV_DOMESTIC' ||
-                selected.trigger_type === 'DURESS_PIN') && (
-                <div className="panel referral-panel">
-                  <h3>GBV &amp; Survivor Referral Protocol (Responder Guidance)</h3>
-                  <div className="referral-grid">
-                    {RESPONDER_REFERRAL_RESOURCES.map((ref) => (
-                      <div className="referral-card" key={ref.id}>
-                        <b>{ref.name}</b>
-                        <code>{ref.contact}</code>
-                        <small>{ref.notes}</small>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+              {/* Pillar B View (GBV Cases) */}
+              {isGbvSelected ? (
+                <GbvCaseView
+                  incident={selected}
+                  allIncidents={incidents}
+                  consents={survivorConsents}
+                  referrals={incidentReferralsList}
+                  manifests={manifests}
+                  logs={logs}
+                  cameras={cameras}
+                  locations={locations}
+                  onRecordReferral={handleRecordReferral}
+                  onOpenDocket={handleOpenDocketModal}
+                  onOpenCameraStream={handleOpenCameraModal}
+                />
+              ) : (
+                /* Pillar A View (Public Safety / Safer Communities) */
+                <>
+                  <TacticalMap
+                    incident={selected}
+                    locations={locations}
+                    cameras={cameras}
+                    onOpenCameraStream={handleOpenCameraModal}
+                  />
+
+                  <EvidenceDocketModal manifests={manifests} logs={logs} />
+                </>
               )}
-
-              <TacticalMap
-                incident={selected}
-                locations={locations}
-                cameras={cameras}
-                onOpenCameraStream={handleOpenCameraModal}
-              />
-
-              <EvidenceDocketModal manifests={manifests} logs={logs} />
             </>
           ) : (
             <div className="panel empty">
-              No incident selected. Incoming SOS, Duress, and Check-In alerts appear here automatically.
+              No incident selected in this pillar. Incoming SOS, Duress, and Check-In alerts appear here automatically.
             </div>
           )}
         </section>

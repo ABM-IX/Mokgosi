@@ -105,3 +105,48 @@ export async function verifyEvidenceManifest(manifestPayload) {
   return res.json();
 }
 
+export async function fetchHotspots() {
+  const res = await fetch(`${API_BASE}/api/v1/analytics/hotspots`);
+  if (!res.ok) {
+    throw new Error(`Hotspots fetch failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function fetchIncidentReferrals(incidentId, accessToken) {
+  if (!incidentId || !accessToken) return { referrals: [] };
+  const res = await fetch(`${API_BASE}/api/v1/incidents/${incidentId}/referrals`, {
+    headers: authHeaders(accessToken),
+  });
+  if (!res.ok) return { referrals: [] };
+  return res.json();
+}
+
+export async function postIncidentReferral(incidentId, partnerId, notes, accessToken) {
+  const res = await fetch(`${API_BASE}/api/v1/incidents/${incidentId}/referrals`, {
+    method: 'POST',
+    headers: authHeaders(accessToken, { 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ partner_id: partnerId, notes }),
+  });
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(`Referral failed (${res.status}): ${detail}`);
+  }
+  return res.json();
+}
+
+export async function fetchSurvivorConsents(userId, accessToken) {
+  if (!userId) return null;
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/consents/${userId}`, {
+      headers: authHeaders(accessToken, { 'X-Device-Key': 'DEMO_DEVICE_KEY' }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.consents || null;
+  } catch {
+    return null;
+  }
+}
+
+

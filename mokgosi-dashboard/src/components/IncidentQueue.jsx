@@ -23,12 +23,23 @@ function formatElapsed(seconds) {
  * Priority-sorted incident queue with Active vs Resolved tabs, per-card live SLA
  * timer, silent duress warning badge, and GBV domestic category indicator.
  */
+export function isGbvIncident(inc) {
+  if (!inc) return false;
+  const cat = inc.category || '';
+  return (
+    cat.startsWith('GBV_') ||
+    inc.trigger_type === 'COVERT_SOS' ||
+    inc.trigger_type === 'DURESS_PIN'
+  );
+}
+
 export default function IncidentQueue({
   incidents,
   selectedId,
   onSelect,
   activeTab,
   onTabChange,
+  activePillar = 'SAFER_COMMUNITIES',
 }) {
   const [nowMs, setNowMs] = useState(() => Date.now());
 
@@ -37,11 +48,17 @@ export default function IncidentQueue({
     return () => clearInterval(timer);
   }, []);
 
+  const pillarFiltered = incidents.filter((inc) => {
+    if (!activePillar) return true;
+    const gbv = isGbvIncident(inc);
+    return activePillar === 'GBV_RESPONSE' ? gbv : !gbv;
+  });
+
   const activeList = sortIncidentsByUrgency(
-    incidents.filter((inc) => inc.status !== 'RESOLVED'),
+    pillarFiltered.filter((inc) => inc.status !== 'RESOLVED'),
   );
   const resolvedList = sortIncidentsByUrgency(
-    incidents.filter((inc) => inc.status === 'RESOLVED'),
+    pillarFiltered.filter((inc) => inc.status === 'RESOLVED'),
   );
   const visible = activeTab === 'RESOLVED' ? resolvedList : activeList;
 
@@ -87,7 +104,8 @@ export default function IncidentQueue({
             const unacknowledgedBreach =
               inc.status === 'CREATED' && elapsedSeconds >= SLA_ACK_THRESHOLD_SECONDS;
             const isDuress = inc.trigger_type === 'DURESS_PIN';
-            const isGbv = inc.category === 'GBV_DOMESTIC';
+            const isCovert = inc.trigger_type === 'COVERT_SOS' || inc.trigger_type === 'SHAKE_SOS';
+            const isGbv = inc.category && inc.category.startsWith('GBV_');
             const priorityClass =
               inc.priority === 'P1_CRITICAL'
                 ? 'p1'
@@ -100,7 +118,7 @@ export default function IncidentQueue({
                 type="button"
                 key={inc.id}
                 className={`incident-card ${selectedId === inc.id ? 'selected' : ''} ${
-                  isDuress ? 'duress-card' : ''
+                  isDuress || isCovert ? 'duress-card' : ''
                 }`}
                 onClick={() => onSelect(inc)}
               >
@@ -110,8 +128,11 @@ export default function IncidentQueue({
                     {isDuress && (
                       <span className="badge badge-duress">SILENT DURESS</span>
                     )}
+                    {isCovert && (
+                      <span className="badge badge-covert">COVERT ALERT</span>
+                    )}
                     {isGbv && (
-                      <span className="badge badge-gbv">GBV / DOMESTIC</span>
+                      <span className="badge badge-gbv">{inc.category.replace('_', ' ')}</span>
                     )}
                   </div>
                   <span className="status-tag">{inc.status}</span>

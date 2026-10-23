@@ -663,6 +663,482 @@ button:disabled {
   text-align: left;
 }
 
+/* --- Two-Pillar Switcher --- */
+.pillar-switcher {
+  display: flex;
+  gap: 8px;
+  background: var(--color-surface-inset);
+  padding: 4px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}
+
+.pillar-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--color-text-secondary);
+  font-weight: 700;
+  font-size: 13px;
+  transition: all 0.15s ease;
+}
+
+.pillar-tab:hover {
+  color: var(--color-text-primary);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.pillar-tab.active {
+  background: var(--color-surface-elevated);
+  color: var(--color-accent);
+  border-color: var(--color-accent-strong);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.pillar-tab.pillar-gbv.active {
+  color: #d6bcfa;
+  border-color: #805ad5;
+  background: #271438;
+}
+
+.pillar-count {
+  padding: 1px 7px;
+  border-radius: 99px;
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--color-text-primary);
+}
+
+/* --- Badges & Tags --- */
+.badge-covert {
+  background: #702459;
+  color: #fed7e2;
+  border: 1px solid #b83280;
+}
+
+.badge-override {
+  background: #742a2a;
+  color: #feb2b2;
+  border: 1px solid #e53e3e;
+  font-weight: 800;
+}
+
+.badge-ack {
+  background: #22543d;
+  color: #9ae6b4;
+}
+
+.badge-standby {
+  background: #2d3748;
+  color: #a0aec0;
+}
+
+/* --- Pillar Subview Bar --- */
+.subview-bar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.subview-btn {
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.subview-btn.active {
+  background: var(--color-accent-strong);
+  color: #fff;
+  border-color: var(--color-accent);
+}
+
+/* --- GBV Case View --- */
+.gbv-case-view {
+  display: grid;
+  gap: 16px;
+}
+
+.gbv-flags-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.flags-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.anon-id code {
+  color: #81e6d9;
+}
+
+.consents-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.consent-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-inset);
+}
+
+.consent-pill.granted {
+  border-color: #276749;
+  color: #9ae6b4;
+}
+
+.consent-pill.denied {
+  border-color: #9b2c2c;
+  color: #feb2b2;
+}
+
+/* --- Protocol Card --- */
+.protocol-card {
+  border-left: 4px solid #e53e3e;
+  background: #1c0e13;
+  display: grid;
+  gap: 12px;
+}
+
+.protocol-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.protocol-title-row h3 {
+  margin: 0;
+  color: #feb2b2;
+  font-size: 15px;
+}
+
+.protocol-todo {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #744210;
+  color: #fefcbf;
+  border: 1px solid #b7791f;
+}
+
+.protocol-alert-banner {
+  padding: 10px 14px;
+  background: #4a1525;
+  border-radius: var(--radius-sm);
+  color: #fed7e2;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.protocol-rules {
+  margin: 0;
+  padding-left: 20px;
+  color: #e2e8f0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+/* --- Safe Network Escalation --- */
+.safe-network-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.section-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.section-title h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.network-explainer,
+.referral-explainer,
+.evidence-explainer {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+
+.escalation-timeline {
+  display: grid;
+  gap: 8px;
+}
+
+.timeline-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-inset);
+  border: 1px solid var(--color-border);
+  gap: 12px;
+}
+
+.timeline-item.acked {
+  border-color: #276749;
+}
+
+.timeline-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.timeline-content small {
+  color: var(--color-text-secondary);
+}
+
+.ack-status {
+  color: #68d391;
+  font-weight: 800;
+  font-size: 11px;
+}
+
+.standby-status {
+  color: #a0aec0;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+/* --- Pattern Signal --- */
+.pattern-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.pattern-tag {
+  display: inline-block;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pattern-tag.repeat-alert {
+  background: #553c9a;
+  color: #e9d8fd;
+  border: 1px solid #805ad5;
+}
+
+.pattern-tag.first-alert {
+  background: #2d3748;
+  color: #cbd5e0;
+}
+
+.pattern-history-list ul,
+.past-referrals-list ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.pattern-history-list li,
+.past-referrals-list li {
+  margin-bottom: 4px;
+}
+
+/* --- Referral Panel --- */
+.referral-form {
+  display: grid;
+  gap: 10px;
+}
+
+.referral-form .form-group {
+  display: grid;
+  gap: 4px;
+}
+
+.referral-form label {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  font-weight: 700;
+}
+
+.referral-form select,
+.referral-form textarea {
+  background: var(--color-surface-inset);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.referral-form select:focus,
+.referral-form textarea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.btn-accent {
+  background: var(--color-accent-strong);
+  color: #fff;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  padding: 8px 16px;
+  font-weight: 700;
+}
+
+.btn-accent:hover {
+  background: var(--color-accent);
+}
+
+.success-notice {
+  background: #1c4532;
+  border: 1px solid #276749;
+  color: #9ae6b4;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+}
+
+/* --- CCTV Suppression --- */
+.cctv-suppression-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.cctv-suppressed-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* --- Hotspots View --- */
+.hotspots-view {
+  display: grid;
+  gap: 16px;
+}
+
+.hotspots-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.hotspots-privacy-banner {
+  padding: 12px 16px;
+  background: #172e27;
+  border: 1px solid #234e52;
+  border-radius: var(--radius-md);
+  color: #81e6d9;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.hotspots-metrics-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.metric-box {
+  background: var(--color-surface-inset);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+}
+
+.metric-title {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.metric-number {
+  font-size: 18px;
+  color: var(--color-text-primary);
+  margin-top: 2px;
+}
+
+.hotspots-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.hotspots-table th,
+.hotspots-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.hotspots-table th {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+.cell-count-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 99px;
+  background: var(--color-surface-inset);
+  color: #63b3ed;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.risk-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.risk-tag.risk-high {
+  background: #742a2a;
+  color: #feb2b2;
+}
+
+.risk-tag.risk-med {
+  background: #744210;
+  color: #fefcbf;
+}
+
+.risk-tag.risk-low {
+  background: #234e52;
+  color: #81e6d9;
+}
+
 @media (max-width: 960px) {
   .layout {
     grid-template-columns: 1fr;
@@ -671,3 +1147,4 @@ button:disabled {
     max-height: 440px;
   }
 }
+
