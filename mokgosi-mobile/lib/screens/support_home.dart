@@ -4,6 +4,7 @@ import '../services/incident_api.dart';
 import '../services/motion_telemetry.dart';
 import 'calculator_disguise_screen.dart';
 import 'consents_screen.dart';
+import 'evidence_screen.dart';
 import 'get_help_screen.dart';
 import 'safe_network_screen.dart';
 
@@ -162,6 +163,19 @@ class _SupportHomeState extends State<SupportHome> {
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute<void>(builder: (_) => const SafeNetworkScreen()),
+                );
+              },
+            ),
+            const SizedBox(height: 10),
+            _buildNavigationCard(
+              key: const Key('nav_evidence'),
+              icon: Icons.folder_special_outlined,
+              iconColor: const Color(0xff81e6d9),
+              title: MokgosiL10n.get('evidence_vault'),
+              subtitle: 'Silent audio, photo, note capture & tamper-evident case bundles',
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const EvidenceScreen()),
                 );
               },
             ),

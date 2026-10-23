@@ -9,6 +9,7 @@ export 'screens/checkin_prompt.dart';
 export 'screens/consents_screen.dart';
 export 'screens/decoy_safe_screen.dart';
 export 'screens/escort_home.dart';
+export 'screens/evidence_screen.dart';
 export 'screens/get_help_screen.dart';
 export 'screens/pillar_selection_screen.dart';
 export 'screens/safe_network_screen.dart';

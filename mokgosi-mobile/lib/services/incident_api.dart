@@ -616,7 +616,12 @@ class IncidentApi {
     return [];
   }
 
-  static Future<bool> deleteEvidenceEntry(String entryId, {bool hardDelete = false}) async {
+  static Future<bool> deleteEvidenceEntry(String entryId, {bool hardDelete = false, String? userId}) async {
+    if (userId != null) {
+      final existing = await fetchEvidenceEntries(userId);
+      existing.removeWhere((e) => e['id'] == entryId);
+      await PlatformStore.write('cached_evidence_$userId', jsonEncode(existing));
+    }
     if (simulateOfflineMode) return true;
     try {
       final uri = Uri.parse('${MokgosiConfig.apiBase}/api/v1/evidence-entries/$entryId?hard_delete=$hardDelete');
