@@ -3,23 +3,23 @@
 ## Phase Status Summary
 - **Phase 0 (It builds):** DONE
 - **Phase 1 (Backend invariant & security):** DONE (24/24 pytest tests passing)
-- **Phase 2 (Mobile escort & duress):** IN PROGRESS (Next up)
-- **Phase 3 (Dashboard Realtime & SLA):** PENDING
-- **Phase 4 (Acoustic AI context):** PARTIAL (Backend done; mobile consenting 15s audio upload & dashboard UI pending)
-- **Phase 5 (Evidence & controlled CCTV):** PARTIAL (Backend `/cctv-snapshot` & `/evidence/verify` done; dashboard modals pending)
-- **Phase 6 (Fault-tolerance rehearsal):** PARTIAL (Backend tests done; mobile offline queue & `docs/REHEARSAL.md` pending)
-- **Phase 7 (GBV alignment & pitch readiness):** PENDING
+- **Phase 2 (Mobile escort & duress):** DONE (6/6 Flutter unit & widget tests passing, 0 analyzer issues, `app-debug.apk` builds cleanly)
+- **Phase 3 (Dashboard Realtime & SLA):** DONE (Priority queue, SLA timers/metrics, 4-step lifecycle state machine, authenticated responder session, SILENT DURESS banner)
+- **Phase 4 (Acoustic AI context):** DONE (`DETERMINISTIC_DEMO` gated behind `DEMO_MODE`, upgrade-only priority, consenting 15s mobile upload, signed `AUDIO_CONTEXT_CLIP` manifest)
+- **Phase 5 (Evidence & controlled CCTV):** DONE (`POST /api/v1/incidents/{id}/cctv-snapshot` enforcing 150m authorized camera check, `CctvStreamModal`, `EvidenceDocketModal` with live Ed25519 signature verification & 1-byte tamper test, audit logging for `VIEW_INCIDENT`, `OPEN_CCTV_STREAM`, `VIEW_EVIDENCE`)
+- **Phase 6 (Fault-tolerance rehearsal):** DONE (Automated fault-tolerance tests across backend, mobile, and dashboard + [`docs/REHEARSAL.md`](docs/REHEARSAL.md))
+- **Phase 7 (GBV alignment & pitch readiness):** DONE (`category` selection & display, covert defaults, survivor consent & data deletion path, non-invented `TODO` referral resources, [`docs/PRIVACY_AND_SAFETY.md`](docs/PRIVACY_AND_SAFETY.md), [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), and updated [`README.md`](docs/README.md))
 
 ## What Is Verified
-- `mokgosi-backend`: `.\.venv\Scripts\python.exe -m py_compile` and `.\.venv\Scripts\python.exe -m pytest -v` (24 passed).
-- `mokgosi-mobile`: `flutter analyze` (0 issues), `flutter test` (passed), `flutter build apk --debug` (built `app-debug.apk`).
-- `mokgosi-dashboard`: `npm run build` passes.
+- **Backend (`mokgosi-backend/`):** `.\.venv\Scripts\python.exe -m py_compile` (0 errors) and `.\.venv\Scripts\python.exe -m pytest -v` (24/24 passed).
+- **Mobile (`mokgosi-mobile/`):** `flutter analyze` (0 issues), `flutter test` (6/6 passed), `flutter build apk --debug` (`build\app\outputs\flutter-apk\app-debug.apk` built).
+- **Dashboard (`mokgosi-dashboard/`):** `npm test` (3/3 passed) and `npm run build` (clean production bundle).
 
 ## What Is Unverified
-- Physical Android device lock-screen full-screen intent, foreground service survival on real OEM lock screen, physical accelerometer impact, and carrier SMS delivery (Botswana Twilio / cellular SMS).
+- Physical Android phone lock-screen wake over OEM keyguard (`showWhenLocked` / `turnScreenOn`), physical drop accelerometer calibration, and live carrier SMS delivery to Botswana (`+267`) mobile numbers.
+- Live YAMNet TFLite model weights (`DEMO_MODE` deterministic profiles are used and explicitly labelled `DETERMINISTIC_DEMO`).
+- Live RTSP/MJPEG municipal camera streams (seeded Gaborone CBD cameras are opt-in demo entries).
 
 ## Exact Next Step
-Implement **Phase 2 (Mobile escort & duress)** in `mokgosi-mobile/`:
-1. Modularize `lib/` into `config/mokgosi_config.dart`, `services/pin_guard.dart`, `services/notification_guard.dart`, `services/motion_telemetry.dart`, `services/incident_api.dart` (with offline persistence queue, exponential backoff, connectivity listener, SMS fallback, and Route 3 consenting 15s audio upload), and `screens/{escort_home.dart, checkin_prompt.dart, decoy_safe_screen.dart, safety_setup_screen.dart}`.
-2. Add Android `<service>` for foreground location/microphone monitoring in `AndroidManifest.xml`.
-3. Add unit and widget tests for PIN guard (safe, duress, 3-strike duress), motion telemetry (`>= 3.5g` peak tracking), offline queue idempotency (`client_event_id`), and covert decoy screen (`pushAndRemoveUntil` + `PopScope(canPop: false)`).
+All phases (0–7) are complete and verified. Ready for live hackathon rehearsal using [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md) and [`docs/REHEARSAL.md`](docs/REHEARSAL.md).
+

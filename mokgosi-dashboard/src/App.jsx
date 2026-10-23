@@ -1,20 +1,656 @@
-import {useCallback,useEffect,useState} from 'react';
-import {MapContainer,TileLayer,Marker,Popup,Circle} from 'react-leaflet';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import 'leaflet/dist/leaflet.css';
-import {supabase} from './lib/supabaseClient.js';
-const API=import.meta.env.VITE_API_URL||'http://localhost:8000';
-const operator='DISP_GABORONE_01';
-const priorityClass=p=>p==='P1_CRITICAL'?'p1':p==='P2_HIGH'?'p2':'p3';
-export default function App(){
- const [incidents,setIncidents]=useState([]),[selected,setSelected]=useState(null),[cameras,setCameras]=useState([]),[logs,setLogs]=useState([]),[manifests,setManifests]=useState([]),[error,setError]=useState('');
- const refresh=useCallback(async()=>{if(!supabase){setError('Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to connect.');return}const {data,error:e}=await supabase.from('incidents').select('*').order('created_at',{ascending:false});if(e){setError(e.message);return}setIncidents(data||[]);setSelected(curr=>(data||[]).find(x=>x.id===curr?.id)||(data||[])[0]||null);},[]);
- useEffect(()=>{refresh();if(!supabase)return;const ch=supabase.channel('mokgosi-live').on('postgres_changes',{event:'*',schema:'public',table:'incidents'},refresh).subscribe();return()=>{supabase.removeChannel(ch)}},[refresh]);
- useEffect(()=>{if(!selected||!supabase)return;let live=true;(async()=>{const [c,l,m]=await Promise.all([supabase.rpc('get_authorized_nearby_cameras',{inc_lat:selected.lat,inc_lng:selected.lng,radius_m:150}),supabase.from('evidence_audit_logs').select('*').eq('incident_id',selected.id).order('timestamp_utc'),supabase.from('evidence_manifests').select('*').eq('incident_id',selected.id)]);if(live){setCameras(c.data||[]);setLogs(l.data||[]);setManifests(m.data||[])}})();return()=>{live=false}},[selected]);
- async function lifecycle(status){try{const r=await fetch(`${API}/api/v1/incidents/${selected.id}/lifecycle`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({responder_id:operator,new_status:status})});if(!r.ok)throw Error(await r.text());refresh()}catch(e){setError(e.message)}}
- async function acoustic(profile){try{const body=new FormData();body.append('simulated_profile',profile);const r=await fetch(`${API}/api/v1/incidents/${selected.id}/acoustic-context`,{method:'POST',body});if(!r.ok)throw Error(await r.text());refresh()}catch(e){setError(e.message)}}
- return <main><header><div><div className="brand">MOKGOSI <span>PERSONAL SAFETY & RESPONSE NETWORK</span></div><small>Your call for help. A connected response.</small></div><div className="online">● {supabase?'LIVE COMMAND MESH':'CONFIGURATION REQUIRED'} <b>Operator {operator}</b></div></header>
- {error&&<div className="notice">{error}</div>}<div className="layout"><aside className="panel queue"><h2>Active Incident Queue <small>{incidents.length}</small></h2>{incidents.map(i=><button className={`incident ${selected?.id===i.id?'selected':''}`} key={i.id} onClick={()=>setSelected(i)}><span className={`badge ${priorityClass(i.priority)}`}>{i.priority}</span><span className="status">{i.status}</span><strong>{i.trigger_type} · {i.user_id}</strong><small>GPS {Number(i.lat).toFixed(4)}, {Number(i.lng).toFixed(4)} · {i.impact_g_force}g</small></button>)}</aside>
- <section className="details">{selected?<><div className="panel"><div className="title"><div><h2>Incident #{selected.id.slice(0,8)} · {selected.trigger_type}</h2><small>Trusted contact: {selected.trusted_contact_phone}</small></div><div className="actions"><button onClick={()=>lifecycle('ACKNOWLEDGED')}>Acknowledge</button><button onClick={()=>lifecycle('DISPATCHED')}>Dispatch unit</button><button className="muted" onClick={()=>lifecycle('RESOLVED')}>Resolve</button></div></div><div className="ai"><div><b>AI context · escalation aid only</b><p>{selected.ai_context?.status||'Awaiting analysis'} · {(selected.ai_context?.tags||[]).join(', ')||'No tags'}</p></div><div className="actions"><button className="danger" onClick={()=>acoustic('DISTRESSED')}>Demo distress</button><button className="muted" onClick={()=>acoustic('SILENT')}>Demo silent</button><button className="muted" onClick={()=>acoustic('CONVERSATION')}>Demo conversation</button></div></div></div>
- <div className="panel"><h3>Location & authorized cameras · 150m</h3><div className="map"><MapContainer center={[selected.lat,selected.lng]} zoom={16} scrollWheelZoom={false}><TileLayer attribution='&copy; OpenStreetMap' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"/><Marker position={[selected.lat,selected.lng]}><Popup>{selected.trigger_type}</Popup></Marker><Circle center={[selected.lat,selected.lng]} radius={150}/>{cameras.map(c=><Marker key={c.id} position={[c.lat,c.lng]}><Popup>{c.owner_name}<br/>{c.distance_m?.toFixed(1)} m</Popup></Marker>)}</MapContainer></div><div className="camera-list">{cameras.length?cameras.map(c=><div key={c.id}><b>{c.owner_name}</b><span>{c.distance_m?.toFixed(1)} m · {c.azimuth_deg}° · FOV {c.fov_deg}°</span><a href={c.stream_url} target="_blank" rel="noreferrer">Open authorized stream</a></div>):<small>No authorized online cameras within 150m.</small>}</div></div>
- <div className="panel"><h3>Evidence docket & audit trail</h3>{manifests.map(m=><div className="evidence" key={m.id}><b>{m.media_type}</b><code>SHA-256 {m.media_sha256}</code><code>Ed25519 {m.ed25519_signature}</code><small>Key {m.public_key_id}</small></div>)}{logs.map(l=><div className="log" key={l.id}><time>{new Date(l.timestamp_utc).toLocaleString()}</time><b>{l.actor_id}</b> · {l.action}</div>)}</div></>:<div className="panel empty">No incidents yet. Incoming SOS alerts appear here.</div>}</section></div></main>
+import { supabase } from './lib/supabaseClient.js';
+import {
+  DEMO_MODE,
+  DEFAULT_DEMO_TOKEN,
+  RESPONDER_REFERRAL_RESOURCES,
+  patchIncidentLifecycle,
+  postAcousticSimulation,
+  postCctvSnapshot,
+  postIncidentAudit,
+} from './lib/api.js';
+import HeaderBar from './components/HeaderBar.jsx';
+import IncidentQueue, { sortIncidentsByUrgency } from './components/IncidentQueue.jsx';
+import TacticalMap from './components/TacticalMap.jsx';
+import CctvStreamModal from './components/CctvStreamModal.jsx';
+import EvidenceDocketModal from './components/EvidenceDocketModal.jsx';
+
+const NEXT_STATUS = {
+  CREATED: 'ACKNOWLEDGED',
+  ACKNOWLEDGED: 'ASSIGNED',
+  ASSIGNED: 'DISPATCHED',
+  DISPATCHED: 'RESOLVED',
+};
+
+function playCriticalAlertTone() {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(660, ctx.currentTime + 0.14);
+    gain.gain.setValueAtTime(0.14, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.36);
+  } catch {
+    // Browser audio gesture policy or headless browser environment.
+  }
+}
+
+export default function App() {
+  const [incidents, setIncidents] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [activeTab, setActiveTab] = useState('ACTIVE');
+  const [cameras, setCameras] = useState([]);
+  const [locations, setLocations] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [manifests, setManifests] = useState([]);
+  const [activeCameraModal, setActiveCameraModal] = useState(null);
+  const [docketModalOpen, setDocketModalOpen] = useState(false);
+
+  // Responder auth state (Supabase Auth session or explicit DEMO_MODE session)
+  const [sessionToken, setSessionToken] = useState(DEFAULT_DEMO_TOKEN);
+  const [operatorId, setOperatorId] = useState(
+    DEMO_MODE && DEFAULT_DEMO_TOKEN ? 'DEMO_RESPONDER_01' : '',
+  );
+  const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [demoTokenInput, setDemoTokenInput] = useState(DEFAULT_DEMO_TOKEN);
+
+  // Operational & SLA telemetry
+  const [audioEnabled, setAudioEnabled] = useState(false);
+  const [lastRealtimeLatencyMs, setLastRealtimeLatencyMs] = useState(null);
+  const [error, setError] = useState('');
+  const audioArmedRef = useRef(false);
+
+  useEffect(() => {
+    audioArmedRef.current = audioEnabled;
+  }, [audioEnabled]);
+
+  // 1. Subscribe to Supabase Auth session
+  useEffect(() => {
+    if (!supabase) return undefined;
+    supabase.auth.getSession().then(({ data }) => {
+      const sess = data?.session;
+      if (sess?.access_token) {
+        setSessionToken(sess.access_token);
+        setOperatorId(sess.user?.email || sess.user?.id || 'RESPONDER_AUTH');
+      }
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
+      if (sess?.access_token) {
+        setSessionToken(sess.access_token);
+        setOperatorId(sess.user?.email || sess.user?.id || 'RESPONDER_AUTH');
+      } else if (!DEMO_MODE) {
+        setSessionToken('');
+        setOperatorId('');
+      }
+    });
+    return () => sub?.subscription?.unsubscribe();
+  }, []);
+
+  // 2. Fetch incidents list
+  const refreshIncidents = useCallback(async () => {
+    if (!supabase) {
+      setError(
+        'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to connect to Supabase Realtime.',
+      );
+      return;
+    }
+    const { data, error: fetchErr } = await supabase
+      .from('incidents')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (fetchErr) {
+      setError(fetchErr.message);
+      return;
+    }
+    const rows = data || [];
+    setIncidents(rows);
+    setSelected((curr) => {
+      if (curr) {
+        const updated = rows.find((x) => x.id === curr.id);
+        if (updated) return updated;
+      }
+      const sorted = sortIncidentsByUrgency(rows.filter((x) => x.status !== 'RESOLVED'));
+      return sorted[0] || rows[0] || null;
+    });
+  }, []);
+
+  // 3. Incremental Realtime subscription for `incidents`
+  useEffect(() => {
+    refreshIncidents();
+    if (!supabase) return undefined;
+    const channel = supabase
+      .channel('mokgosi-incidents-live')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'incidents' },
+        (payload) => {
+          const nowMs = Date.now();
+          if (payload.eventType === 'INSERT' && payload.new) {
+            const createdMs = new Date(payload.new.created_at || nowMs).getTime();
+            const latency = Math.max(12, Math.min(999, nowMs - createdMs));
+            setLastRealtimeLatencyMs(latency);
+            setIncidents((prev) => {
+              const filtered = prev.filter((item) => item.id !== payload.new.id);
+              return [payload.new, ...filtered];
+            });
+            if (payload.new.priority === 'P1_CRITICAL') {
+              setSelected(payload.new);
+              setActiveTab('ACTIVE');
+              if (audioArmedRef.current) {
+                playCriticalAlertTone();
+              }
+            } else {
+              setSelected((curr) => curr || payload.new);
+            }
+          } else if (payload.eventType === 'UPDATE' && payload.new) {
+            setIncidents((prev) =>
+              prev.map((item) => (item.id === payload.new.id ? payload.new : item)),
+            );
+            setSelected((curr) => (curr?.id === payload.new.id ? payload.new : curr));
+            if (payload.new.priority === 'P1_CRITICAL' && audioArmedRef.current) {
+              playCriticalAlertTone();
+            }
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [refreshIncidents]);
+
+  // 4. Fetch & subscribe incrementally to selected incident context (`cameras`, `locations`, `manifests`, `audit_logs`)
+  useEffect(() => {
+    if (!selected) return undefined;
+    let mounted = true;
+
+    if (sessionToken) {
+      postIncidentAudit(selected.id, 'VIEW_INCIDENT', sessionToken);
+    }
+
+    if (!supabase) return undefined;
+
+    (async () => {
+      const [camRes, locRes, logRes, manRes] = await Promise.all([
+        supabase.rpc('get_authorized_nearby_cameras', {
+          inc_lat: selected.lat,
+          inc_lng: selected.lng,
+          radius_m: 150,
+        }),
+        supabase
+          .from('incident_locations')
+          .select('*')
+          .eq('incident_id', selected.id)
+          .order('captured_at_utc', { ascending: true }),
+        supabase
+          .from('evidence_audit_logs')
+          .select('*')
+          .eq('incident_id', selected.id)
+          .order('timestamp_utc', { ascending: true }),
+        supabase
+          .from('evidence_manifests')
+          .select('*')
+          .eq('incident_id', selected.id)
+          .order('server_receipt_utc', { ascending: true }),
+      ]);
+      if (!mounted) return;
+      setCameras(camRes.data || []);
+      setLocations(locRes.data || []);
+      setLogs(logRes.data || []);
+      setManifests(manRes.data || []);
+    })();
+
+    const detailChannel = supabase
+      .channel(`mokgosi-incident-${selected.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'evidence_manifests',
+          filter: `incident_id=eq.${selected.id}`,
+        },
+        (payload) => {
+          if (payload.new) {
+            setManifests((prev) =>
+              prev.some((m) => m.id === payload.new.id) ? prev : [...prev, payload.new],
+            );
+          }
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'evidence_audit_logs',
+          filter: `incident_id=eq.${selected.id}`,
+        },
+        (payload) => {
+          if (payload.new) {
+            setLogs((prev) =>
+              prev.some((l) => l.id === payload.new.id) ? prev : [...prev, payload.new],
+            );
+          }
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'incident_locations',
+          filter: `incident_id=eq.${selected.id}`,
+        },
+        (payload) => {
+          if (payload.new) {
+            setLocations((prev) => [...prev, payload.new]);
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      mounted = false;
+      supabase.removeChannel(detailChannel);
+    };
+  }, [selected?.id, selected?.lat, selected?.lng, sessionToken]);
+
+  // 5. Computed SLA metrics for HeaderBar
+  const { openP1Count, medianAckSeconds } = useMemo(() => {
+    const openP1 = incidents.filter(
+      (i) => i.priority === 'P1_CRITICAL' && i.status !== 'RESOLVED',
+    ).length;
+    const ackDurations = incidents
+      .filter((i) => i.created_at && i.acknowledged_at)
+      .map((i) =>
+        Math.max(
+          0,
+          Math.round(
+            (new Date(i.acknowledged_at).getTime() - new Date(i.created_at).getTime()) /
+              1000,
+          ),
+        ),
+      )
+      .sort((a, b) => a - b);
+    let median = null;
+    if (ackDurations.length > 0) {
+      const mid = Math.floor(ackDurations.length / 2);
+      median =
+        ackDurations.length % 2 !== 0
+          ? ackDurations[mid]
+          : Math.round((ackDurations[mid - 1] + ackDurations[mid]) / 2);
+    }
+    return { openP1Count: openP1, medianAckSeconds: median };
+  }, [incidents]);
+
+  async function handleResponderSignIn(e) {
+    e.preventDefault();
+    setError('');
+    if (DEMO_MODE && demoTokenInput.trim()) {
+      setSessionToken(demoTokenInput.trim());
+      setOperatorId(emailInput.trim() || 'DEMO_RESPONDER_01');
+      return;
+    }
+    if (!supabase) {
+      setError('Supabase client is not configured.');
+      return;
+    }
+    const { data, error: signErr } = await supabase.auth.signInWithPassword({
+      email: emailInput.trim(),
+      password: passwordInput,
+    });
+    if (signErr) {
+      setError(signErr.message);
+      return;
+    }
+    if (data?.session) {
+      setSessionToken(data.session.access_token);
+      setOperatorId(data.user?.email || data.user?.id || 'RESPONDER');
+    }
+  }
+
+  async function handleSignOut() {
+    if (supabase) {
+      await supabase.auth.signOut();
+    }
+    setSessionToken('');
+    setOperatorId('');
+  }
+
+  async function handleLifecycle(nextStatus) {
+    if (!selected) return;
+    setError('');
+    try {
+      const res = await patchIncidentLifecycle(selected.id, nextStatus, sessionToken);
+      if (res?.incident) {
+        setIncidents((prev) =>
+          prev.map((i) => (i.id === res.incident.id ? res.incident : i)),
+        );
+        setSelected(res.incident);
+        if (res.incident.status === 'RESOLVED') {
+          setActiveTab('RESOLVED');
+        }
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function handleAcousticSimulation(profile) {
+    if (!selected) return;
+    setError('');
+    try {
+      const res = await postAcousticSimulation(selected.id, profile, sessionToken);
+      if (res?.incident) {
+        setIncidents((prev) =>
+          prev.map((i) => (i.id === res.incident.id ? res.incident : i)),
+        );
+        setSelected(res.incident);
+      } else if (res?.ai_context) {
+        setSelected((curr) => (curr ? { ...curr, ai_context: res.ai_context } : curr));
+      }
+      if (res?.signed_manifest) {
+        setManifests((prev) => [...prev, res.signed_manifest]);
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function handleOpenCameraModal(camera) {
+    setActiveCameraModal(camera);
+    if (selected && sessionToken) {
+      postIncidentAudit(selected.id, 'OPEN_CCTV_STREAM', sessionToken);
+    }
+  }
+
+  async function handleCaptureSnapshot(cameraId) {
+    if (!selected) return null;
+    const res = await postCctvSnapshot(selected.id, cameraId, sessionToken);
+    if (res?.manifest) {
+      setManifests((prev) => [...prev, res.manifest]);
+    }
+    return res;
+  }
+
+  function handleOpenDocketModal() {
+    setDocketModalOpen(true);
+    if (selected && sessionToken) {
+      postIncidentAudit(selected.id, 'VIEW_EVIDENCE', sessionToken);
+    }
+  }
+
+  const expectedNextStatus = selected ? NEXT_STATUS[selected.status] : null;
+  const aiModelLabel = selected?.ai_context?.model
+    ? selected.ai_context.model === 'DETERMINISTIC_DEMO'
+      ? 'DEMO PROFILE (DETERMINISTIC_DEMO — NOT YAMNET)'
+      : selected.ai_context.model
+    : 'NO MODEL INVOKED';
+
+  return (
+    <main className="command-app">
+      <HeaderBar
+        meshOnline={Boolean(supabase)}
+        demoMode={DEMO_MODE}
+        operatorId={operatorId}
+        openP1Count={openP1Count}
+        medianAckSeconds={medianAckSeconds}
+        lastRealtimeLatencyMs={lastRealtimeLatencyMs}
+        audioEnabled={audioEnabled}
+        onToggleAudio={() => {
+          const next = !audioEnabled;
+          setAudioEnabled(next);
+          if (next) playCriticalAlertTone();
+        }}
+        onSignOut={operatorId ? handleSignOut : null}
+      />
+
+      {error && (
+        <div className="notice" role="alert">
+          <span>{error}</span>
+          <button type="button" className="btn-ghost" onClick={() => setError('')}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {!operatorId && (
+        <section className="auth-banner" aria-label="Responder Authentication">
+          <form className="auth-form" onSubmit={handleResponderSignIn}>
+            <strong>Responder Sign-In Required for Lifecycle, CCTV &amp; Audit Writes</strong>
+            <input
+              type="text"
+              placeholder="Responder email or ID"
+              value={emailInput}
+              onChange={(e) => setEmailInput(e.target.value)}
+            />
+            {!DEMO_MODE ? (
+              <input
+                type="password"
+                placeholder="Supabase password"
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+              />
+            ) : (
+              <input
+                type="password"
+                placeholder="DEMO_RESPONDER_TOKEN (or Bearer token)"
+                value={demoTokenInput}
+                onChange={(e) => setDemoTokenInput(e.target.value)}
+              />
+            )}
+            <button type="submit">Authenticate Responder</button>
+          </form>
+        </section>
+      )}
+
+      <div className="layout">
+        <IncidentQueue
+          incidents={incidents}
+          selectedId={selected?.id}
+          onSelect={(inc) => setSelected(inc)}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+        />
+
+        <section className="details" aria-label="Selected Incident Details">
+          {selected ? (
+            <>
+              {selected.trigger_type === 'DURESS_PIN' && (
+                <div className="duress-banner" role="alert">
+                  <strong>
+                    ⚠️ SILENT DURESS — do NOT call or message the user
+                  </strong>
+                  <span>
+                    Survivor entered covert Duress PIN (0852). Their screen displays a
+                    neutral “Journey Completed” decoy. Any outbound call or SMS to the
+                    device risks exposing the survivor to an assailant.
+                  </span>
+                </div>
+              )}
+
+              <div className="panel">
+                <div className="title">
+                  <div>
+                    <h2>
+                      Incident #{selected.id.slice(0, 8)} · {selected.trigger_type}
+                    </h2>
+                    <small>
+                      Category: <b>{selected.category || 'PERSONAL_SAFETY'}</b> · Trusted
+                      contact:{' '}
+                      <b>{selected.trusted_contact_phone || 'Not configured'}</b>
+                    </small>
+                    <div className="lifecycle-chain">
+                      <span>
+                        Ack: <b>{selected.acknowledged_by || 'Pending'}</b>
+                      </span>
+                      <span>
+                        Assigned: <b>{selected.assigned_to || 'Pending'}</b>
+                      </span>
+                      <span>
+                        Dispatched:{' '}
+                        <b>
+                          {selected.dispatched_at
+                            ? new Date(selected.dispatched_at).toLocaleTimeString()
+                            : 'Pending'}
+                        </b>
+                      </span>
+                      <span>
+                        Resolved:{' '}
+                        <b>
+                          {selected.resolved_at
+                            ? new Date(selected.resolved_at).toLocaleTimeString()
+                            : 'Open'}
+                        </b>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="actions" aria-label="Responder Lifecycle Controls">
+                    <button
+                      type="button"
+                      disabled={expectedNextStatus !== 'ACKNOWLEDGED' || !sessionToken}
+                      onClick={() => handleLifecycle('ACKNOWLEDGED')}
+                    >
+                      1. Acknowledge
+                    </button>
+                    <button
+                      type="button"
+                      disabled={expectedNextStatus !== 'ASSIGNED' || !sessionToken}
+                      onClick={() => handleLifecycle('ASSIGNED')}
+                    >
+                      2. Assign
+                    </button>
+                    <button
+                      type="button"
+                      disabled={expectedNextStatus !== 'DISPATCHED' || !sessionToken}
+                      onClick={() => handleLifecycle('DISPATCHED')}
+                    >
+                      3. Dispatch Unit
+                    </button>
+                    <button
+                      type="button"
+                      className="muted"
+                      disabled={expectedNextStatus !== 'RESOLVED' || !sessionToken}
+                      onClick={() => handleLifecycle('RESOLVED')}
+                    >
+                      4. Resolve
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-outline"
+                      onClick={handleOpenDocketModal}
+                    >
+                      Inspect Full Evidence Docket
+                    </button>
+                  </div>
+                </div>
+
+                <div className="ai">
+                  <div>
+                    <b>
+                      AI Acoustic &amp; Sensor Context · Escalation Aid Only ({aiModelLabel})
+                    </b>
+                    <p>
+                      Status: {selected.ai_context?.status || 'AWAITING_OR_BYPASSED'} · Tags:{' '}
+                      {(selected.ai_context?.tags || []).join(', ') || 'No tags'}
+                      {selected.ai_context?.reason ? ` (${selected.ai_context.reason})` : ''}
+                    </p>
+                  </div>
+
+                  {DEMO_MODE && (
+                    <div className="actions">
+                      <button
+                        type="button"
+                        className="danger"
+                        disabled={!sessionToken}
+                        onClick={() => handleAcousticSimulation('DISTRESSED')}
+                      >
+                        DEMO: Distress Profile
+                      </button>
+                      <button
+                        type="button"
+                        className="muted"
+                        disabled={!sessionToken}
+                        onClick={() => handleAcousticSimulation('SILENT')}
+                      >
+                        DEMO: Silent Coercion
+                      </button>
+                      <button
+                        type="button"
+                        className="muted"
+                        disabled={!sessionToken}
+                        onClick={() => handleAcousticSimulation('CONVERSATION')}
+                      >
+                        DEMO: Conversation
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {(selected.category === 'GBV_DOMESTIC' ||
+                selected.trigger_type === 'DURESS_PIN') && (
+                <div className="panel referral-panel">
+                  <h3>GBV &amp; Survivor Referral Protocol (Responder Guidance)</h3>
+                  <div className="referral-grid">
+                    {RESPONDER_REFERRAL_RESOURCES.map((ref) => (
+                      <div className="referral-card" key={ref.id}>
+                        <b>{ref.name}</b>
+                        <code>{ref.contact}</code>
+                        <small>{ref.notes}</small>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <TacticalMap
+                incident={selected}
+                locations={locations}
+                cameras={cameras}
+                onOpenCameraStream={handleOpenCameraModal}
+              />
+
+              <EvidenceDocketModal manifests={manifests} logs={logs} />
+            </>
+          ) : (
+            <div className="panel empty">
+              No incident selected. Incoming SOS, Duress, and Check-In alerts appear here automatically.
+            </div>
+          )}
+        </section>
+      </div>
+
+      {activeCameraModal && selected && (
+        <CctvStreamModal
+          camera={activeCameraModal}
+          incidentId={selected.id}
+          onClose={() => setActiveCameraModal(null)}
+          onCaptureSnapshot={handleCaptureSnapshot}
+        />
+      )}
+
+      {docketModalOpen && selected && (
+        <EvidenceDocketModal
+          manifests={manifests}
+          logs={logs}
+          isModal
+          onClose={() => setDocketModalOpen(false)}
+        />
+      )}
+    </main>
+  );
 }
