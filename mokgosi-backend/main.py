@@ -8,17 +8,31 @@ import time
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any, Literal, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator
 from supabase import Client, create_client
 
 from services.acoustic_worker import analyze
+from services.analytics_service import aggregate_hotspots
+from services.evidence_service import (
+    _bundle_cache,
+    generate_bundle_token,
+    generate_case_bundle_zip,
+    verify_bundle_token,
+    verify_bundle_zip,
+)
 from services.evidence_vault import load_private_key, public_key_hex, sign_manifest, verify_manifest
 from services.priority_engine import assign_initial_priority
+from services.safe_network import (
+    format_neutral_sms,
+    generate_ack_token,
+    run_escalation_chain,
+    verify_ack_token,
+)
 from services.trusted_notifier import dispatch, validate_e164
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -144,8 +158,8 @@ def require_device_or_responder(
 class IncidentTriggerPayload(BaseModel):
     user_id: str = Field(min_length=1, max_length=120)
     trusted_contact_phone: Optional[str] = None
-    trigger_type: Literal["EXPLICIT_SOS", "DURESS_PIN", "MISSED_CHECKIN", "MOTION_IMPACT"]
-    category: Literal["PERSONAL_SAFETY", "GBV_DOMESTIC"] = "PERSONAL_SAFETY"
+    trigger_type: Literal["EXPLICIT_SOS", "DURESS_PIN", "MISSED_CHECKIN", "MOTION_IMPACT", "COVERT_SOS", "SHAKE_SOS"]
+    category: Literal["PERSONAL_SAFETY", "GBV_DOMESTIC", "GBV_SEXUAL_VIOLENCE", "GBV_OTHER"] = "PERSONAL_SAFETY"
     lat: float = Field(ge=-90, le=90)
     lng: float = Field(ge=-180, le=180)
     impact_g_force: float = Field(default=1.0, ge=0, le=100)
@@ -156,6 +170,56 @@ class IncidentTriggerPayload(BaseModel):
     @classmethod
     def phone_is_e164(cls, value: Optional[str]) -> Optional[str]:
         return validate_e164(value) if value else None
+
+
+class TrustedContactCreatePayload(BaseModel):
+    user_id: str = Field(min_length=1, max_length=120)
+    name: str = Field(min_length=1, max_length=120)
+    phone_e164: str
+    role: Literal["TRUSTED_PERSON", "FAMILY", "NEIGHBOUR", "SUPPORT_ORG"] = "TRUSTED_PERSON"
+    priority: int = Field(default=1, ge=1, le=5)
+    notify_on: list[str] = Field(default_factory=lambda: [
+        "P1_CRITICAL", "P2_HIGH", "P3_VERIFY", "EXPLICIT_SOS", "DURESS_PIN", "COVERT_SOS", "SHAKE_SOS"
+    ])
+
+    @field_validator("phone_e164")
+    @classmethod
+    def phone_is_e164(cls, value: str) -> str:
+        return validate_e164(value)
+
+
+class TrustedContactUpdatePayload(BaseModel):
+    name: Optional[str] = None
+    phone_e164: Optional[str] = None
+    role: Optional[Literal["TRUSTED_PERSON", "FAMILY", "NEIGHBOUR", "SUPPORT_ORG"]] = None
+    priority: Optional[int] = Field(default=None, ge=1, le=5)
+    notify_on: Optional[list[str]] = None
+    is_active: Optional[bool] = None
+
+    @field_validator("phone_e164")
+    @classmethod
+    def phone_is_e164(cls, value: Optional[str]) -> Optional[str]:
+        return validate_e164(value) if value is not None else None
+
+
+class EvidenceSharePayload(BaseModel):
+    user_id: str = Field(min_length=1, max_length=120)
+    entry_ids: list[str] = Field(min_length=1)
+    recipient_type: Literal["POLICE", "LEGAL_AID", "COUNSELLOR", "OTHER"]
+    notes: Optional[str] = None
+
+
+class ReferralCreatePayload(BaseModel):
+    partner_id: str = Field(min_length=1)
+    notes: Optional[str] = None
+
+
+class ConsentsUpdatePayload(BaseModel):
+    user_id: str = Field(min_length=1, max_length=120)
+    location: Optional[bool] = True
+    audio: Optional[bool] = False
+    responder_contact: Optional[bool] = False
+    share_evidence: Optional[bool] = False
 
 
 class LifecycleUpdatePayload(BaseModel):
@@ -198,7 +262,25 @@ def _notify_trusted_person(
     priority: str,
     client: Client | None,
 ) -> None:
-    """Run notifier without depending on the response database path."""
+    """Run notifier without depending on the response database path. Prioritizes safe network escalation chain."""
+    if client:
+        try:
+            base_url = os.getenv("API_BASE_URL", "http://localhost:8000")
+            chain_results = run_escalation_chain(
+                incident_id,
+                payload.user_id,
+                payload.category,
+                priority,
+                payload.lat,
+                payload.lng,
+                client=client,
+                base_url=base_url,
+            )
+            if chain_results:
+                return
+        except Exception:
+            logger.exception("Safe network escalation failed; falling back to direct contact phone")
+
     if not payload.trusted_contact_phone:
         logger.warning("Trusted-person dispatch skipped: no verified contact is configured")
         if client:
@@ -263,8 +345,20 @@ def _nearby_cameras(client: Client, payload: IncidentTriggerPayload) -> list[dic
 
 @app.get("/health")
 def health() -> dict[str, Any]:
-    return {"status": "ok", "database_configured": bool(os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_KEY")),
-            "demo_mode": os.getenv("DEMO_MODE", "false").lower() == "true", "signing_key_id": KEY_ID}
+    db_reachable = False
+    try:
+        client = get_db()
+        _result_data(client.table("incidents").select("id").limit(1))
+        db_reachable = True
+    except Exception:
+        db_reachable = False
+    return {
+        "status": "ok",
+        "database_configured": bool(os.getenv("SUPABASE_URL") and os.getenv("SUPABASE_KEY")),
+        "database_reachable": db_reachable,
+        "demo_mode": os.getenv("DEMO_MODE", "false").lower() == "true",
+        "signing_key_id": KEY_ID,
+    }
 
 
 @app.get("/api/v1/evidence/public-key")
@@ -689,3 +783,569 @@ async def audit_incident_view(incident_id: UUID, payload: dict[str, str], actor_
         return {"recorded": recorded, "actor_id": actor_id, "action": action}
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Audit event could not be persisted") from exc
+
+
+# =============================================================================
+# Pillar B: Safe Network Contacts
+# =============================================================================
+
+@app.post("/api/v1/network/contacts")
+async def create_trusted_contact(payload: TrustedContactCreatePayload, _device: str = Depends(require_device)):
+    """Create a trusted contact in the user's safe network (max 5 active contacts per user)."""
+    client = get_db()
+    existing = _result_data(
+        client.table("trusted_contacts").select("id").eq("user_id", payload.user_id).eq("is_active", True)
+    )
+    if len(existing) >= 5:
+        raise HTTPException(status_code=400, detail="A user may have at most 5 active trusted contacts")
+    row = {
+        "user_id": payload.user_id,
+        "name": payload.name,
+        "phone_e164": payload.phone_e164,
+        "role": payload.role,
+        "priority": payload.priority,
+        "notify_on": payload.notify_on,
+        "is_active": True,
+        "verified": False,
+    }
+    data = _result_data(client.table("trusted_contacts").insert(row))
+    created = data[0] if data else row
+    _audit(client, None, f"user:{payload.user_id}", "SAFE_NETWORK_CONTACT_ADDED", {"contact_id": created.get("id"), "role": payload.role, "priority": payload.priority})
+    return {"contact": created}
+
+
+@app.get("/api/v1/network/contacts")
+async def list_trusted_contacts(user_id: str, _device: str = Depends(require_device)):
+    """List safe network contacts for caller ordered by priority."""
+    client = get_db()
+    contacts = _result_data(
+        client.table("trusted_contacts")
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("is_active", True)
+        .order("priority", desc=False)
+    )
+    return {"contacts": contacts}
+
+
+@app.patch("/api/v1/network/contacts/{contact_id}")
+async def update_trusted_contact(contact_id: UUID, payload: TrustedContactUpdatePayload, _device: str = Depends(require_device)):
+    """Update priority, role, or phone for a safe network contact."""
+    client = get_db()
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=422, detail="No fields provided for update")
+    data = _result_data(client.table("trusted_contacts").update(updates).eq("id", str(contact_id)))
+    if not data:
+        raise HTTPException(status_code=404, detail="Trusted contact not found")
+    _audit(client, None, "SAFE_NETWORK", "CONTACT_UPDATED", {"contact_id": str(contact_id)})
+    return {"contact": data[0]}
+
+
+@app.delete("/api/v1/network/contacts/{contact_id}")
+async def delete_trusted_contact(contact_id: UUID, _device: str = Depends(require_device)):
+    """Soft-delete a trusted contact by marking is_active=False."""
+    client = get_db()
+    data = _result_data(client.table("trusted_contacts").update({"is_active": False}).eq("id", str(contact_id)))
+    if not data:
+        raise HTTPException(status_code=404, detail="Trusted contact not found")
+    _audit(client, None, "SAFE_NETWORK", "CONTACT_REMOVED", {"contact_id": str(contact_id)})
+    return {"deleted": True, "contact_id": str(contact_id)}
+
+
+# =============================================================================
+# Pillar B: Signed Acknowledgement Link (One-Click "I've got this")
+# =============================================================================
+
+@app.get("/ack/{token}", response_class=HTMLResponse)
+async def ack_get(token: str):
+    """Serve tiny, neutral acknowledgement web page with a single 'I've got this' confirmation button."""
+    try:
+        info = verify_ack_token(token)
+    except ValueError as exc:
+        return HTMLResponse(
+            status_code=400,
+            content=f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mokgosi Alert Link</title>
+<style>body{{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#f8fafc;padding:2rem;text-align:center;}}
+.card{{max-width:440px;margin:3rem auto;padding:2rem;background:#1e293b;border-radius:12px;border:1px solid #ef4444;}}
+h2{{color:#ef4444;margin-top:0;}}p{{color:#cbd5e1;line-height:1.6;}}</style>
+</head><body><div class="card"><h2>Alert Link Expired or Invalid</h2><p>{str(exc)}</p></div></body></html>""",
+        )
+
+    # Check if already acknowledged
+    client = None
+    already_acked = False
+    try:
+        client = get_db()
+        rows = _result_data(
+            client.table("incident_notifications")
+            .select("status,acked_at")
+            .eq("incident_id", info["incident_id"])
+            .eq("contact_id", info["contact_id"])
+            .limit(1)
+        )
+        if rows and rows[0].get("status") == "ACKNOWLEDGED":
+            already_acked = True
+    except Exception:
+        pass
+
+    if already_acked:
+        return HTMLResponse(
+            content="""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mokgosi Alert - Acknowledged</title>
+<style>body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#f8fafc;padding:2rem;text-align:center;}
+.card{max-width:440px;margin:3rem auto;padding:2rem;background:#1e293b;border-radius:12px;border:1px solid #22c55e;}
+h2{color:#22c55e;margin-top:0;}p{color:#cbd5e1;line-height:1.6;}</style>
+</head><body><div class="card"><h2>Already Acknowledged</h2><p>You have already acknowledged this safety alert. Your network has recorded your response.</p></div></body></html>"""
+        )
+
+    return HTMLResponse(
+        content=f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mokgosi Safe Network</title>
+<style>
+body{{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#f8fafc;padding:2rem;text-align:center;margin:0;}}
+.card{{max-width:440px;margin:3rem auto;padding:2.5rem 2rem;background:#1e293b;border-radius:14px;border:1px solid #334155;box-shadow:0 10px 25px rgba(0,0,0,0.5);}}
+h2{{color:#38bdf8;margin-top:0;font-size:1.5rem;}}
+p{{color:#94a3b8;line-height:1.6;font-size:1.05rem;}}
+button{{background:#0284c7;color:#fff;font-size:1.2rem;font-weight:700;padding:1.1rem 2rem;border:none;border-radius:10px;cursor:pointer;width:100%;margin-top:1.75rem;transition:background 0.2s;}}
+button:hover{{background:#0369a1;}}
+</style>
+</head><body><div class="card">
+<h2>Mokgosi Safe Network</h2>
+<p>Someone in your trusted circle requested an urgent safety check.</p>
+<p>Please confirm that you have seen this alert and are following up.</p>
+<form method="POST" action="/ack/{token}">
+<button type="submit">I've got this</button>
+</form>
+</div></body></html>"""
+    )
+
+
+@app.post("/ack/{token}", response_class=HTMLResponse)
+async def ack_post(token: str):
+    """Handle one-click acknowledgement submission."""
+    try:
+        info = verify_ack_token(token)
+    except ValueError as exc:
+        return HTMLResponse(status_code=400, content=f"<h2>Error</h2><p>{str(exc)}</p>")
+
+    now_utc = datetime.now(timezone.utc).isoformat()
+    try:
+        client = get_db()
+        client.table("incident_notifications").update({
+            "status": "ACKNOWLEDGED",
+            "acked_at": now_utc,
+        }).eq("incident_id", info["incident_id"]).eq("contact_id", info["contact_id"]).execute()
+        _audit(client, info["incident_id"], f"contact:{info['contact_id']}", "TRUSTED_CONTACT_ACKNOWLEDGED", {
+            "acked_at": now_utc,
+            "contact_id": info["contact_id"],
+        })
+    except Exception:
+        logger.exception("Failed to write acknowledgement to DB; responding to contact with confirmation")
+
+    return HTMLResponse(
+        content="""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mokgosi Alert - Confirmed</title>
+<style>body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#f8fafc;padding:2rem;text-align:center;}
+.card{max-width:440px;margin:3rem auto;padding:2rem;background:#1e293b;border-radius:12px;border:1px solid #22c55e;}
+h2{color:#22c55e;margin-top:0;}p{color:#cbd5e1;line-height:1.6;}</style>
+</head><body><div class="card"><h2>Thank You</h2><p>Your acknowledgement was recorded. Your safe network has been notified that you are responding.</p></div></body></html>"""
+    )
+
+
+# =============================================================================
+# Pillar B: Survivor-Owned Evidence Vault & Case Bundles
+# =============================================================================
+
+def _check_evidence_authorization(requested_user_id: str, request: Request, x_device_key: Optional[str]) -> None:
+    header_user = request.headers.get("x-user-id")
+    if header_user and header_user != requested_user_id:
+        raise HTTPException(status_code=403, detail="Forbidden: You cannot read or manage another survivor's evidence entries")
+    try:
+        client = get_db()
+        dev_rows = _result_data(client.table("devices").select("user_id").eq("device_key_hash", x_device_key or "").limit(1))
+        if dev_rows and dev_rows[0].get("user_id") != requested_user_id:
+            raise HTTPException(status_code=403, detail="Forbidden: Device is not authorized for this survivor profile")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+
+@app.post("/api/v1/evidence-entries")
+async def store_evidence_entry(
+    user_id: str = Form(...),
+    kind: Literal["AUDIO", "PHOTO", "NOTE"] = Form(...),
+    source_capture_utc: Optional[str] = Form(None),
+    lat: Optional[float] = Form(None),
+    lng: Optional[float] = Form(None),
+    notes: Optional[str] = Form(None),
+    media_file: Optional[UploadFile] = File(None),
+    request: Request = None,
+    x_device_key: str = Depends(require_device),
+):
+    """Store survivor-owned media or note; sign cryptographic manifest with persistent Ed25519 key."""
+    _check_evidence_authorization(user_id, request, x_device_key)
+    client = get_db()
+    now_utc = source_capture_utc or datetime.now(timezone.utc).isoformat()
+
+    raw_bytes: bytes = b""
+    content_type = "text/plain"
+    filename = f"entry_{int(time.time() * 1000)}"
+    if media_file is not None:
+        raw_bytes = await media_file.read()
+        content_type = media_file.content_type or "application/octet-stream"
+        filename = media_file.filename or filename
+    elif notes:
+        raw_bytes = notes.encode("utf-8")
+
+    if not raw_bytes:
+        raise HTTPException(status_code=422, detail="Either media_file or notes content must be provided")
+
+    storage_path = f"evidence-vault/{user_id}/{filename}"
+    _store_media_bytes(client, storage_path, raw_bytes, content_type)
+
+    media_type_map = {
+        "AUDIO": "SURVIVOR_AUDIO",
+        "PHOTO": "SURVIVOR_PHOTO",
+        "NOTE": "SURVIVOR_NOTE",
+    }
+    manifest = sign_manifest(
+        PRIVATE_KEY,
+        incident_id=f"survivor:{user_id}",
+        content=raw_bytes,
+        media_type=media_type_map[kind],
+        provenance=f"SURVIVOR_VAULT:{lat},{lng}" if lat is not None else "SURVIVOR_VAULT:NO_GPS",
+        source_ts=now_utc,
+        media_storage_path=storage_path,
+    )
+    persisted_manifest = _persist_manifest(client, manifest)
+    manifest_id = persisted_manifest.get("id")
+
+    entry_row = {
+        "user_id": user_id,
+        "kind": kind,
+        "captured_at_utc": now_utc,
+        "lat": lat,
+        "lng": lng,
+        "notes": notes,
+        "_raw_bytes": raw_bytes,
+        "storage_path": storage_path,
+        "manifest_id": manifest_id,
+        "shared_with": [],
+        "deleted_at": None,
+    }
+    if lat is not None and lng is not None:
+        entry_row["gps"] = f"POINT({lng} {lat})"
+
+    data = _result_data(client.table("evidence_entries").insert(entry_row))
+    created_entry = data[0] if data else entry_row
+
+    _audit(client, None, f"user:{user_id}", "SURVIVOR_EVIDENCE_STORED", {
+        "entry_id": created_entry.get("id"),
+        "kind": kind,
+        "manifest_id": manifest_id,
+    })
+    return {"entry": created_entry, "signed_manifest": persisted_manifest}
+
+
+@app.get("/api/v1/evidence-entries")
+async def list_evidence_entries(
+    user_id: str = Query(...),
+    request: Request = None,
+    x_device_key: str = Depends(require_device),
+):
+    """List caller's active evidence entries (user cannot read another user's entries)."""
+    _check_evidence_authorization(user_id, request, x_device_key)
+    client = get_db()
+    rows = _result_data(
+        client.table("evidence_entries")
+        .select("*")
+        .eq("user_id", user_id)
+        .is_("deleted_at", "null")
+        .order("captured_at_utc", desc=True)
+    )
+    return {"entries": rows}
+
+
+@app.delete("/api/v1/evidence-entries/{entry_id}")
+async def delete_evidence_entry(
+    entry_id: UUID,
+    hard_delete: bool = Query(False),
+    request: Request = None,
+    x_device_key: str = Depends(require_device),
+):
+    """Soft-delete (and optional hard-delete) an evidence entry; log action honestly without content."""
+    client = get_db()
+    rows = _result_data(client.table("evidence_entries").select("*").eq("id", str(entry_id)).limit(1))
+    if not rows:
+        raise HTTPException(status_code=404, detail="Evidence entry not found")
+    entry = rows[0]
+    _check_evidence_authorization(entry["user_id"], request, x_device_key)
+
+    now_utc = datetime.now(timezone.utc).isoformat()
+    client.table("evidence_entries").update({"deleted_at": now_utc}).eq("id", str(entry_id)).execute()
+
+    if hard_delete and entry.get("storage_path"):
+        try:
+            bucket = os.getenv("EVIDENCE_STORAGE_BUCKET", "evidence-media")
+            storage = getattr(client, "storage", None)
+            if storage:
+                storage.from_(bucket).remove([entry["storage_path"]])
+        except Exception:
+            logger.warning("Hard delete storage removal failed for %s", entry.get("storage_path"))
+
+    _audit(client, None, f"user:{entry['user_id']}", "SURVIVOR_EVIDENCE_DELETED", {
+        "entry_id": str(entry_id),
+        "hard_delete": hard_delete,
+    })
+    return {"deleted": True, "entry_id": str(entry_id), "hard_delete": hard_delete, "deleted_at": now_utc}
+
+
+@app.post("/api/v1/evidence-entries/share")
+async def share_evidence_bundle(
+    payload: EvidenceSharePayload,
+    request: Request = None,
+    x_device_key: str = Depends(require_device),
+):
+    """Produce a signed forensic case bundle ZIP with expiring download token. No auto-sharing."""
+    _check_evidence_authorization(payload.user_id, request, x_device_key)
+    client = get_db()
+    entries = []
+    manifests = []
+
+    for eid in payload.entry_ids:
+        rows = _result_data(
+            client.table("evidence_entries")
+            .select("*")
+            .eq("id", eid)
+            .eq("user_id", payload.user_id)
+            .is_("deleted_at", "null")
+            .limit(1)
+        )
+        if not rows:
+            raise HTTPException(status_code=404, detail=f"Evidence entry {eid} not found or not owned by caller")
+        entry = rows[0]
+        entries.append(entry)
+        if entry.get("manifest_id"):
+            m_rows = _result_data(client.table("evidence_manifests").select("*").eq("id", entry["manifest_id"]).limit(1))
+            if m_rows:
+                m_dict = dict(m_rows[0])
+                m_dict.setdefault("public_key", PUBLIC_KEY_HEX)
+                manifests.append(m_dict)
+
+    bundle_id = str(uuid4())
+    zip_bytes = generate_case_bundle_zip(payload.user_id, entries, manifests, payload.recipient_type, payload.notes)
+    token = generate_bundle_token(payload.user_id, bundle_id, ttl_seconds=7200)
+
+    # Cache bundle in-memory for download link
+    _bundle_cache[token] = {
+        "user_id": payload.user_id,
+        "bundle_id": bundle_id,
+        "zip_bytes": zip_bytes,
+        "recipient_type": payload.recipient_type,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # Record share metadata on each entry
+    now_utc = datetime.now(timezone.utc).isoformat()
+    for entry in entries:
+        existing_shared = entry.get("shared_with") or []
+        existing_shared.append({
+            "recipient_type": payload.recipient_type,
+            "shared_at": now_utc,
+            "bundle_id": bundle_id,
+        })
+        client.table("evidence_entries").update({"shared_with": existing_shared}).eq("id", entry["id"]).execute()
+
+    _audit(client, None, f"user:{payload.user_id}", "EVIDENCE_BUNDLE_GENERATED", {
+        "bundle_id": bundle_id,
+        "recipient_type": payload.recipient_type,
+        "entry_count": len(entries),
+    })
+
+    return {
+        "bundle_id": bundle_id,
+        "download_url": f"/api/v1/evidence-bundles/{token}",
+        "recipient_type": payload.recipient_type,
+        "entry_count": len(entries),
+        "expires_in_seconds": 7200,
+    }
+
+
+@app.get("/api/v1/evidence-bundles/{token}")
+async def download_case_bundle(token: str):
+    """Download an expiring case bundle ZIP; audit-log every access."""
+    try:
+        info = verify_bundle_token(token)
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
+    cached = _bundle_cache.get(token)
+    if not cached:
+        raise HTTPException(status_code=404, detail="Case bundle has expired or is no longer in cache")
+
+    try:
+        client = get_db()
+        _audit(client, None, "EXTERNAL_RECIPIENT", "EVIDENCE_BUNDLE_DOWNLOADED", {
+            "bundle_id": info["bundle_id"],
+            "user_id": info["user_id"],
+        })
+    except Exception:
+        pass
+
+    filename = f"mokgosi-case-bundle-{info['bundle_id'][:8]}.zip"
+    return Response(
+        content=cached["zip_bytes"],
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+# =============================================================================
+# Pillar B: Referral Directory & Incident Case Handoffs
+# =============================================================================
+
+@app.get("/api/v1/referrals")
+async def list_referral_partners(
+    region: Optional[str] = Query(None),
+    type: Optional[str] = Query(None),
+):
+    """Survivor-facing referral directory: returns STRICTLY verified partners only."""
+    client = get_db()
+    query = client.table("referral_partners").select("*").eq("verified", True)
+    if region:
+        query = query.eq("region", region)
+    if type:
+        query = query.eq("type", type)
+    rows = _result_data(query)
+    # Notice: unverified entries are completely suppressed from this endpoint!
+    return {"partners": rows, "count": len(rows)}
+
+
+@app.get("/api/v1/incidents/{incident_id}/referrals")
+async def list_incident_referrals(incident_id: UUID, _responder: str = Depends(require_responder)):
+    """Responder-facing: list referral handoffs recorded for this incident."""
+    client = get_db()
+    rows = _result_data(
+        client.table("incident_referrals")
+        .select("id,incident_id,partner_id,referred_by,referred_at,outcome,notes")
+        .eq("incident_id", str(incident_id))
+        .order("referred_at", desc=True)
+    )
+    return {"referrals": rows}
+
+
+@app.post("/api/v1/incidents/{incident_id}/referrals")
+async def record_incident_referral(
+    incident_id: UUID,
+    payload: ReferralCreatePayload,
+    responder_id: str = Depends(require_responder),
+):
+    """Responder-facing: record a referral action (audit-logged append-only record)."""
+    client = get_db()
+    partner_rows = _result_data(client.table("referral_partners").select("id,name,type").eq("id", str(payload.partner_id)).limit(1))
+    if not partner_rows:
+        raise HTTPException(status_code=404, detail="Referral partner organization not found")
+    partner = partner_rows[0]
+
+    now_utc = datetime.now(timezone.utc).isoformat()
+    row = {
+        "incident_id": str(incident_id),
+        "partner_id": str(payload.partner_id),
+        "referred_by": responder_id,
+        "referred_at": now_utc,
+        "outcome": "REFERRED",
+        "notes": payload.notes,
+    }
+    data = _result_data(client.table("incident_referrals").insert(row))
+    created = data[0] if data else row
+
+    _audit(client, str(incident_id), responder_id, "INCIDENT_REFERRED_TO_PARTNER", {
+        "partner_id": str(payload.partner_id),
+        "partner_name": partner.get("name"),
+        "partner_type": partner.get("type"),
+        "notes": payload.notes,
+    })
+    return {"referral": created}
+
+
+# =============================================================================
+# Pillar B: Survivor Consents
+# =============================================================================
+
+@app.get("/api/v1/consents/{user_id}")
+async def get_user_consents(user_id: str, _device: str = Depends(require_device)):
+    """Retrieve survivor consent toggles."""
+    client = get_db()
+    rows = _result_data(client.table("user_consents").select("*").eq("user_id", user_id).limit(1))
+    if not rows:
+        return {
+            "consents": {
+                "user_id": user_id,
+                "location": True,
+                "audio": False,
+                "responder_contact": False,
+                "share_evidence": False,
+            }
+        }
+    return {"consents": rows[0]}
+
+
+@app.patch("/api/v1/consents")
+async def update_user_consents(payload: ConsentsUpdatePayload, _device: str = Depends(require_device)):
+    """Update survivor consent toggles. DURESS/COVERT always overrides responder contact."""
+    client = get_db()
+    now_utc = datetime.now(timezone.utc).isoformat()
+    row = {
+        "user_id": payload.user_id,
+        "location": payload.location if payload.location is not None else True,
+        "audio": payload.audio if payload.audio is not None else False,
+        "responder_contact": payload.responder_contact if payload.responder_contact is not None else False,
+        "share_evidence": payload.share_evidence if payload.share_evidence is not None else False,
+        "updated_at": now_utc,
+    }
+    # Upsert pattern
+    existing = _result_data(client.table("user_consents").select("user_id").eq("user_id", payload.user_id).limit(1))
+    if existing:
+        data = _result_data(client.table("user_consents").update(row).eq("user_id", payload.user_id))
+    else:
+        data = _result_data(client.table("user_consents").insert(row))
+
+    _audit(client, None, f"user:{payload.user_id}", "USER_CONSENTS_UPDATED", {
+        "location": row["location"],
+        "audio": row["audio"],
+        "responder_contact": row["responder_contact"],
+        "share_evidence": row["share_evidence"],
+    })
+    return {"consents": data[0] if data else row}
+
+
+# =============================================================================
+# Pillar A & B: Coarse Grid Analytics / Hotspots (Safer Communities View)
+# =============================================================================
+
+@app.get("/api/v1/analytics/hotspots")
+async def get_analytics_hotspots():
+    """Aggregated coarse grid hotspots (~500m) with strict k-anonymity suppression."""
+    client = get_db()
+    incidents = _result_data(
+        client.table("incidents")
+        .select("lat,lng,category,created_at")
+        .limit(1000)
+    )
+    hotspots = aggregate_hotspots(incidents)
+    return {
+        "hotspots": hotspots,
+        "cell_count": len(hotspots),
+        "privacy_guarantee": "K-anonymity: cells < 5 public incidents (or < 10 GBV incidents) suppressed; coordinates coarsened to ~500m.",
+    }

@@ -22,6 +22,7 @@ class Query:
     def eq(self, key, value): self.filters.append(("eq", key, value)); return self
     def gte(self, key, value): self.filters.append(("gte", key, value)); return self
     def in_(self, key, values): self.filters.append(("in", key, values)); return self
+    def is_(self, key, value): self.filters.append(("is", key, value)); return self
     def order(self, key, desc=False): self.order_by = (key, desc); return self
     def limit(self, count): self.max_rows = count; return self
 
@@ -49,6 +50,9 @@ class Query:
         for kind, key, value in self.filters:
             if kind == "eq": matched = [row for row in matched if row.get(key) == value]
             elif kind == "in": matched = [row for row in matched if row.get(key) in value]
+            elif kind == "is":
+                if value == "null": matched = [row for row in matched if row.get(key) is None]
+                else: matched = [row for row in matched if row.get(key) == value]
             elif kind == "gte": matched = [row for row in matched if (row.get(key) or "") >= value]
         if self.order_by:
             key, desc = self.order_by
