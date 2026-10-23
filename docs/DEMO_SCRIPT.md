@@ -1,6 +1,6 @@
-# MOKGOSI — 4.5-Minute Live Hackathon Demo Script
+# MOKGOSI — 4.5-Minute Live Hackathon Demo Script (Two-Pillar Product)
 
-**Track:** Safer Communities & Gender-Based Violence (GBV) Response  
+**Track:** Safer Communities AND Gender-Based Violence (GBV) Response  
 **Tagline:** *"Your call for help. A connected response."*
 
 ---
@@ -18,7 +18,7 @@
    npm run dev
    ```
    Open `http://localhost:5173`, authenticate with your responder session (or `DEMO_RESPONDER_TOKEN` when `VITE_DEMO_MODE=true`), and click **`🔊 Arm P1 Audio Alert`** in the top header.
-3. **Launch Flutter Escort App** (`mokgosi-mobile/`):
+3. **Launch Flutter Mobile App** (`mokgosi-mobile/`):
    ```powershell
    cd mokgosi-mobile
    flutter run --dart-define=MOKGOSI_API_URL=http://10.0.2.2:8000 --dart-define=MOKGOSI_DEVICE_API_KEY=<device-key> --dart-define=MOKGOSI_DEMO_MODE=true
@@ -26,51 +26,84 @@
 
 ---
 
-## Minute 0:00 – 0:45 | The Problem & Core Engineering Invariant
-- **Narrator:** *"In GBV and high-risk commute scenarios, reactive panic buttons fail when a survivor is coerced into cancelling an alarm, loses signal, or waits on cloud AI. Mokgosi is built around one non-negotiable invariant: **the safety response works even when AI, the database, or the network fails.**"*
-- Show the mobile app home screen:
-  - Select **`Unsafe at Home / Partner`** (`GBV_DOMESTIC` category).
-  - Highlight the explicit survivor consent toggles (`Share live GPS & match authorized 150m cameras` and `Consent to 15s post-alert acoustic triage clip — 72h retention`).
+## Minute 0:00 – 0:30 | The Two Pillars & Engineering Core
+
+- **Narrator:**
+  *"The FNB Hackathon calls for both Safer Communities and Gender-Based Violence Response. Mokgosi unifies both on one resilient engine:*
+  - *Pillar A (Safer Communities): Active escort, municipal authorized CCTV mesh, and aggregated community insights for public spaces.*
+  - *Pillar B (GBV Response): Covert help-seeking, survivor-owned evidence, safe-network escalation, and accredited referral routing for private spaces.*
+  *Our core invariant: the safety response works even when AI, the database, or the internet fails."*
 
 ---
 
-## Minute 0:45 – 1:45 | Active Escort & Covert Duress (`0852`)
-1. Tap **`START 30 SECOND ESCORT`**.
-   - Point out the Android foreground service notification: *"Mokgosi Escort Active — Monitoring route & motion sensors."*
-2. Tap **`CHECK IN NOW`** (or let the 30s countdown reach 0) to trigger the **15-second Haptic Check-In Window**.
-3. **First, show Safe PIN (`2580`):** Enter `2580` and tap **`CONFIRM SAFE / DURESS`** — the timer resets cleanly.
-4. **Next, show Coerced Duress (`0852`):** Open check-in again, enter **`0852`**, and tap **`CONFIRM SAFE / DURESS`**.
-   - **On the Phone:** The screen immediately transitions to the neutral white **`Journey Completed — Location sharing turned off`** decoy screen. Press the Android Back button to prove `PopScope(canPop: false)` blocks navigation back to the escort screen, and point out there is zero mention of an alert anywhere on the phone.
-   - **On the Responder Dashboard:** In $< 1\text{ second}$, a `P1_CRITICAL` card appears at the top of the queue with the audible alert and a red warning banner:
-     **`⚠️ SILENT DURESS — do NOT call or message the user`**, alongside the GBV Responder Referral Protocol panel.
+## Minute 0:30 – 2:00 | Pillar B: The GBV Story (At Home, Under Coercion)
+
+1. **The Disguised Surface:**
+   - Present the mobile screen: the app launcher icon and title read **`Calculator`**.
+   - Type `7 * 6 =` $\rightarrow$ result displays **`42`**.
+   - Show that swiping into Android Recent Apps displays a completely blank/black preview (**`FLAG_SECURE`** native window protection in `MainActivity.kt`).
+2. **Covert Help-Seeking (Duress PIN `0852=`):**
+   - Enter **`0852=`** on the calculator.
+   - **On the Phone:** Zero sound. Zero vibration. Zero toast. The screen stays calmly on the calculator with zero visual clue that an alert was sent.
+   - Point out the foreground service notification reads **"Calculator Running"**, never "Mokgosi" or "Emergency".
+3. **Safe-Network Priority Escalation & One-Click Acknowledgement:**
+   - Show the backend console: `COVERT_SOS` dispatches to Contact #1 (Sister/Mother) with an expiring, signed `/ack/{token}` link.
+   - Open `/ack/{token}` in a browser $\rightarrow$ click the single **"I've got this"** button. Notification status immutably marks `ACKNOWLEDGED`. (If not acked within escalation seconds, it automatically cascades to Contact #2).
+4. **Command Console GBV Case View:**
+   - The dashboard alerts in $< 1\text{ second}$ and automatically activates the **GBV Response** pillar tab.
+   - Point out the prominent **Protocol Card**:
+     **`⚠️ SILENT ALERT PROTOCOL: DO NOT CALL OR MESSAGE THE SURVIVOR.`**
+     *Direct outreach is blocked by system policy because the survivor may be in earshot of an abuser.*
+   - Point out the **Consents Banner**: Location granted, Audio withheld by default, Direct contact blocked.
+   - Point out the **Survivor Pattern Signal**: *"Repeat Incident Signal: 2 incidents on record for this device identity."*
+   - Point out that **Municipal CCTV is hidden by default** to protect domestic residential privacy.
+5. **Accredited Referral Handoff:**
+   - Select **`Kagisano Women's Shelter Project`** in the Referral Panel, type *"Safe accommodation requested; child with survivor"*, and click **`Record Formal Referral & Log Audit`**.
+   - Referral is logged immutably to `incident_referrals` and added to the audit trail.
+6. **Survivor Evidence Mode (Documenting Harm):**
+   - Enter Safe PIN **`2580=`** to open Mokgosi $\rightarrow$ tap **`Evidence Vault`**.
+   - Show silent capture buttons (*Record Audio*, *Take Photo*, *Write Note*).
+   - Select 2 documented entries $\rightarrow$ tap **`Create Case Bundle`** $\rightarrow$ select *Legal Aid* $\rightarrow$ generates a cryptographically signed ZIP bundle with SHA-256 manifests, an Ed25519 signature, and `verify_manifest.py`.
 
 ---
 
-## Minute 1:45 – 2:45 | Simultaneous Dual-Routing & Acoustic Escalation Aid
-1. Point out the backend terminal / audit trail showing **Simultaneous Dual-Routing**:
-   - **Route 1 (Trusted Person):** Dispatched independently (`TRUSTED_CONTACT_DEMO_LOGGED` in console mode or SMS via Twilio/Webhook).
-   - **Route 2 (Command Center):** Persisted in Supabase with 2 matched Gaborone CBD opt-in cameras within 150m.
-2. On the mobile rehearsal drawer, tap **`Simulate Physical Impact (4.2g)`** and let the 15s check-in expire to show a `P2_HIGH` / `P3_VERIFY` incident.
-3. On the dashboard **AI Acoustic & Sensor Context** card (explicitly labelled `DETERMINISTIC_DEMO — NOT YAMNET`):
-   - Click **`DEMO: Conversation`** — tags attach (`Speech / Conversation (0.88)`), and the incident is **never** downgraded or hidden.
-   - Click **`DEMO: Distress Profile`** — priority upgrades automatically to **`P1_CRITICAL`** with explainable tags (`Screaming (0.91)`, `Groan / Struggle (0.78)`).
+## Minute 2:00 – 3:30 | Pillar A: Safer Communities (Public Space Active Escort)
+
+1. **Active Escort:**
+   - In Mokgosi, tap **`Getting Around Safely`** $\rightarrow$ tap **`Start 30 Second Escort`**.
+   - Tap **`Check In Now`** to trigger the 15-second haptic check-in window.
+   - Enter Safe PIN **`2580`** to confirm arrival cleanly.
+2. **Impact Detection & Man-Down Fall:**
+   - In the mobile rehearsal drawer, trigger **`Simulate Physical Impact (4.2g)`** and let the check-in timeout.
+   - A `P1_CRITICAL` alert dispatches to the **Safer Communities** console.
+3. **Authorized 150m CCTV Mesh:**
+   - Switch console to **`Safer Communities`** $\rightarrow$ Tactical Map displays the pulsing incident pin and authorized camera cones (`Gaborone CBD SafeCity Pole #04`).
+   - Click **`Open Authorized Stream & Snapshot`** $\rightarrow$ captures frame and signs with persistent Ed25519 private key.
+   - In the Evidence Docket, click **`Verify Signature (Ed25519)`** $\rightarrow$ **`✓ VALID`**.
+   - Click **`Simulate 1-Byte Tamper Test`** $\rightarrow$ **`✗ INVALID`** (cryptographic rejection).
+4. **Community Hotspots View (Spatial Insight with Privacy):**
+   - Click **`Community Hotspots & Density (Aggregated)`**.
+   - Show the coarse ~500m grid table. Point out the **K-Anonymity Privacy Guarantee**: cells under 5 incidents are strictly suppressed. No personal coordinates or survivor identities are ever exposed.
 
 ---
 
-## Minute 2:45 – 3:45 | Authorized 150m CCTV Mesh & Ed25519 Tamper-Evident Vault
-1. On the **Tactical Map**, point out the pulsing incident pin, the 150m PostGIS radius circle, and the green directional **Camera FOV Cones** (`Gaborone CBD - SafeCity Pole #04` and `Main Mall Retail Opt-In Cam #02`).
-2. Click **`Open Authorized Stream & Snapshot`**:
-   - Show the controlled CCTV modal (which logs `OPEN_CCTV_STREAM` in the append-only audit trail).
-   - Click **`Capture Signed Snapshot (Ed25519)`** to hash the frame (`SHA-256`) and sign the canonical JSON manifest with the backend's persistent `Ed25519` key.
-3. Scroll to the **Cryptographic Evidence Docket**:
-   - Click **`Verify Signature (Ed25519)`** $\rightarrow$ green badge: **`✓ VALID — Canonical JSON & Ed25519 Signature Verified`**.
-   - Click **`Simulate 1-Byte Tamper Test`** $\rightarrow$ red badge: **`✗ INVALID — Tampered Payload Rejected by Ed25519 Verifier`**.
-   - Step the incident through the enforced 4-step responder state machine: **`1. Acknowledge`** $\rightarrow$ **`2. Assign`** $\rightarrow$ **`3. Dispatch Unit`** $\rightarrow$ **`4. Resolve`**.
+## Minute 3:30 – 4:15 | Fault Tolerance & Dual-Routing Resilience
+
+1. **Airplane / Offline Mode Rehearsal:**
+   - In the mobile rehearsal drawer, toggle **`Simulate Airplane / Offline Mode`** ON.
+   - Tap **`Send SOS`**.
+   - Highlight: **No false "sent" message**. The app states: *"Queued — no signal. Retrying automatically; SMS fallback triggered."*
+   - Toggle offline mode OFF: the queued alert immediately flushes and arrives at the command center with zero duplication.
+2. **Independent Routing Invariant:**
+   - Emphasize: Even if the database crashes or AI is offline, the Trusted Network SMS fallback and the Command Center alerts fire independently. Neither path gates or cancels the other.
 
 ---
 
-## Minute 3:45 – 4:30 | Live Fault-Tolerance Moment
-1. On the phone, toggle **`Simulate Airplane / Offline Mode`** on and tap **`SEND SOS`**.
-2. Show that the app **never** lies that an alert was sent — it displays **`Queued — no signal. Will send automatically when online. Device SMS fallback opened.`**
-3. Toggle **`Simulate Airplane / Offline Mode`** off: the queued alert flushes automatically with its original `client_event_id`, producing exactly **one** deduplicated `P1_CRITICAL` incident on the Command Center console.
+## Minute 4:15 – 4:30 | Honesty, Limitations & Wrap-Up
 
+- *"Everything you saw today runs on real code: 42 backend pytest tests, 21 Flutter widget tests, and 8 dashboard unit tests."*
+- *"We are completely honest about what is verified vs unverified:*
+  - *No partner phone numbers or endorsements were fabricated; referral entries are strictly marked `verified = false` until MOUs are executed.*
+  - *We have not obtained Botswana Data Protection Act certification.*
+  - *All Setswana strings are flagged `NEEDS_NATIVE_REVIEW`.*
+- *Mokgosi is not just an escort app — it is a two-pillar safety ecosystem protecting people in the street and at home."*

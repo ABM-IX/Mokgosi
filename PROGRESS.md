@@ -15,11 +15,12 @@
 - **Phase G3 (Mobile covert SOS, disguise, safe network):** DONE (Neutral onboarding `PillarSelectionScreen`, `CalculatorDisguiseScreen` safe PIN `2580=` / duress PIN `0852=` covert trigger, `FLAG_SECURE` recent-apps blanking, Android `.CalculatorAlias`, 3-shake trigger with cooldown, `SafeNetworkScreen` 5-contact limit & warning banner, `GetHelpScreen` verified-only directory with honest unverified notice, `ConsentsScreen` with PIN-confirmed emergency purge, Setswana + English l10n with `NEEDS_NATIVE_REVIEW` doc, 15/15 Flutter tests passing, 0 analyzer issues)
 - **Phase G4 (Mobile: Evidence Mode - survivor-owned documentation):** DONE (`EvidenceScreen` with silent capture buttons for audio, photo, note; encrypted local vault; sync state indicator 'Saved on this phone' vs 'Backed up & signed'; multi-select case bundle creation with recipient selection & 2h expiring link modal; entry deletion with local & server purge; stealth screen dimming; quick exit; 21/21 Flutter tests passing, 0 analyzer issues)
 - **Phase G5 (Dashboard: two pillars, one console):** DONE (`HeaderBar` Two-Pillar switcher, `IncidentQueue` activePillar filtering, `GbvCaseView` with category/consent flags up front, silent duress protocol card overriding direct outreach with `TODO: confirm with partner organisations`, safe network escalation status, non-fabricated referral handoff panel with `postIncidentReferral` + audit logging, user pattern signal & repeat timeline, read-only evidence docket, domestic CCTV privacy suppression, `HotspotsView` with k-anonymity suppression for cells < 5, Realtime alert latency benchmark < 1s [min: 30ms, median: 31ms, max: 47ms], 8/8 npm tests passing, clean Vite build)
+- **Phase G6 (Docs, honesty, and deploy-readiness):** DONE (Pillar B threat model, mitigations, limits & legal/Botswana DPA disclaimers in `docs/PRIVACY_AND_SAFETY.md`, unverified partner checklist in `docs/PARTNERS_TODO.md`, GBV-first pitch story in `docs/DEMO_SCRIPT.md`, Two-Pillar architecture diagram and invariants in `docs/ARCHITECTURE.md`, truthfulness matrix & deploy-readiness in `README.md`, standalone `mokgosi-backend/render.yaml` & root `render.yaml`, full verification suite 100% green: 42 backend pytest + 21 flutter + 8 dashboard)
 
 ## What Is Verified
 - **Backend (`mokgosi-backend/`):** `.\.venv\Scripts\python.exe -m py_compile` (0 errors) and `.\.venv\Scripts\python.exe -m pytest -v` (42/42 passed across base invariants, G1 schema/RLS, and G2 safe network/evidence/referrals/hotspots).
 - **Mobile (`mokgosi-mobile/`):** `flutter analyze` (0 issues), `flutter test` (21/21 passed across original escort flow, calculator disguise math/safe PIN/duress PIN, safe network contact limit, consents PIN purge, 3-shake simulation with cooldown, offline queuing & deduplication on reconnect, AndroidManifest alias validation, and evidence mode silent capture, local vault, case bundle generation, entry deletion, and quick exit).
-- **Dashboard (`mokgosi-dashboard/`):** `npm test` (8/8 passed) and `npm run build` (clean production bundle in 2.27s). Realtime alert latency benchmark confirmed < 1000ms (min 30ms, median 31ms, max 47ms).
+- **Dashboard (`mokgosi-dashboard/`):** `npm test` (8/8 passed) and `npm run build` (clean production bundle in 2.27s). Realtime alert latency benchmark confirmed < 1000ms (min 30ms, median 31ms, max 48ms).
 
 ## What Is Unverified
 - Physical Android phone hardware sensors (haptic motor, native accelerometer hardware events, physical screen lock wake over OEM keyguard), and live carrier SMS delivery to Botswana (`+267`) mobile numbers.
@@ -27,15 +28,11 @@
 - Live RTSP/MJPEG municipal camera streams (seeded Gaborone CBD cameras are opt-in demo entries).
 - Live local PostgreSQL container (Docker daemon requires Windows elevated GUI privilege; schema validated via SQL AST and unit test suite).
 - Setswana strings marked `NEEDS_NATIVE_REVIEW` in `docs/SETSWANA_L10N.md` pending review by native Setswana speakers.
-- Partner organization protocols and phone numbers marked `TODO: confirm with partner organisations` in `src/config/gbvProtocols.js` pending formal operational MOUs.
+- Partner organization protocols and phone numbers marked `TODO: confirm with partner organisations` in `src/config/gbvProtocols.js` and `docs/PARTNERS_TODO.md` pending formal operational MOUs.
 
-## Exact Next Step
-Proceed to Phase G6: Docs, Honesty, and Deploy-Readiness:
-- Update `docs/PRIVACY_AND_SAFETY.md`: threat model for Pillar B, what is mitigated vs not, data retention/deletion, explicit disclaimer of legal review/Botswana Data Protection Act certification.
-- Create `docs/PARTNERS_TODO.md`: the exact list of unverified partner facts, referral contacts, protocol wording, and escalation expectations.
-- Update `docs/DEMO_SCRIPT.md`: lead with GBV story (calculator disguise -> duress PIN -> silent alert -> safe-network escalation + ack -> dashboard GBV case -> referral -> evidence share + verify), then pivot to Safer Communities (escort -> CCTV -> signed snapshot -> hotspots).
-- Update `docs/ARCHITECTURE.md` and `README.md` real-vs-demo matrix with the new modules.
-- Render & Supabase readiness documentation.
+## Reshape Brief Status: FULLY COMPLETE
+All Phases G1–G6 are implemented, documented, verified, and committed.
+
 
 
 

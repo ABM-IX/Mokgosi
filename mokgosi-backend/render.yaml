@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: mokgosi-backend
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.3
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: ED25519_PRIVATE_KEY_SEED
+        sync: false
+      - key: DEVICE_API_KEYS
+        sync: false
+      - key: DEMO_MODE
+        value: "false"
+      - key: NOTIFIER_PROVIDER
+        value: "console"
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "60"
+      - key: CORS_ORIGINS
+        value: "http://localhost:5173,https://mokgosi-dashboard.onrender.com"
+      - key: ESCALATION_SECONDS
+        value: "30"
+      - key: EVIDENCE_STORAGE_BUCKET
+        value: "evidence-media"
