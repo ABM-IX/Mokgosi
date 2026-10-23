@@ -45,6 +45,9 @@ class MotionTelemetry {
     _peakGForce = 1.0;
   }
 
+  DateTime? _lastShakeTrigger;
+  final List<DateTime> _recentShakes = [];
+
   /// Starts listening to hardware accelerometer events and triggers [onImpactThreshold]
   /// when magnitude >= 3.5g.
   void startMonitoring({
@@ -67,6 +70,56 @@ class MotionTelemetry {
         },
       );
     } catch (_) {}
+  }
+
+  /// Monitors 3 hard shakes within 2 seconds for covert shake SOS with cooldown.
+  void startShakeMonitoring({
+    required void Function() onShakeSos,
+    double thresholdG = 2.8,
+    double? shakeThresholdG,
+    Duration window = const Duration(seconds: 2),
+    Duration cooldown = const Duration(seconds: 15),
+  }) {
+    final effectiveThreshold = shakeThresholdG ?? thresholdG;
+    _accelSub?.cancel();
+    try {
+      _accelSub = accelerometerEventStream().listen(
+        (event) {
+          final g = computeGForce(event.x, event.y, event.z);
+          if (g >= effectiveThreshold) {
+            final now = DateTime.now();
+            _recentShakes.removeWhere((t) => now.difference(t) > window);
+            _recentShakes.add(now);
+
+            final lastTrigger = _lastShakeTrigger;
+            final cooledDown = lastTrigger == null || now.difference(lastTrigger) > cooldown;
+            if (_recentShakes.length >= 3 && cooledDown) {
+              _lastShakeTrigger = now;
+              _recentShakes.clear();
+              onShakeSos();
+            }
+          }
+        },
+        onError: (_) {},
+      );
+    } catch (_) {}
+  }
+
+  /// Allows deterministic demo / testing of a 3-shake covert SOS pattern with cooldown check.
+  bool simulateShakePattern({
+    double peakG = 3.2,
+    Duration cooldown = const Duration(seconds: 15),
+    required void Function() onShakeSos,
+  }) {
+    final now = DateTime.now();
+    final lastTrigger = _lastShakeTrigger;
+    if (lastTrigger != null && now.difference(lastTrigger) < cooldown) {
+      return false;
+    }
+    _lastShakeTrigger = now;
+    _recentShakes.clear();
+    onShakeSos();
+    return true;
   }
 
   /// Allows deterministic demo / automated testing of a >= 3.5g physical impact.

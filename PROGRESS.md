@@ -12,17 +12,20 @@
 - **Phase G1 (Data model & taxonomy):** DONE (`database/migrations/002_gbv.sql`, folded into `database/schema.sql`, extended category/trigger taxonomies, `trusted_contacts` 5-contact limit trigger & priority/role, `incident_notifications`, `evidence_entries`, `referral_partners` unverified seed without phone numbers, `incident_referrals` append-only triggers, `user_consents`, anonymous `survivor_profiles`, RLS on all 13 tables, 33/33 pytest passing)
 - **Phase G2 (Backend safe network, evidence, referrals):** DONE (`/api/v1/network/contacts` CRUD with max 5 limit, priority escalation chain with signed `/ack/{token}` one-click confirmation, `/api/v1/evidence-entries` multipart storage & Ed25519 manifests, `/api/v1/evidence-entries/share` forensic case bundle ZIP with standalone `verify_manifest.py`, multi-tenant survivor data isolation, strictly verified `/api/v1/referrals`, `/api/v1/consents`, coarse 500m k-anonymized `/api/v1/analytics/hotspots`, `mokgosi-backend/Dockerfile`, `render.yaml`, 42/42 pytest passing)
 
+- **Phase G3 (Mobile covert SOS, disguise, safe network):** DONE (Neutral onboarding `PillarSelectionScreen`, `CalculatorDisguiseScreen` safe PIN `2580=` / duress PIN `0852=` covert trigger, `FLAG_SECURE` recent-apps blanking, Android `.CalculatorAlias`, 3-shake trigger with cooldown, `SafeNetworkScreen` 5-contact limit & warning banner, `GetHelpScreen` verified-only directory with honest unverified notice, `ConsentsScreen` with PIN-confirmed emergency purge, Setswana + English l10n with `NEEDS_NATIVE_REVIEW` doc, 15/15 Flutter tests passing, 0 analyzer issues)
+
 ## What Is Verified
 - **Backend (`mokgosi-backend/`):** `.\.venv\Scripts\python.exe -m py_compile` (0 errors) and `.\.venv\Scripts\python.exe -m pytest -v` (42/42 passed across base invariants, G1 schema/RLS, and G2 safe network/evidence/referrals/hotspots).
-- **Mobile (`mokgosi-mobile/`):** `flutter analyze` (0 issues), `flutter test` (6/6 passed), `flutter build apk --debug` (`build\app\outputs\flutter-apk\app-debug.apk` built).
+- **Mobile (`mokgosi-mobile/`):** `flutter analyze` (0 issues), `flutter test` (15/15 passed across original escort flow, calculator disguise math/safe PIN/duress PIN, safe network contact limit, consents PIN purge, 3-shake simulation with cooldown, offline queuing & deduplication on reconnect, and AndroidManifest alias validation).
 - **Dashboard (`mokgosi-dashboard/`):** `npm test` (3/3 passed) and `npm run build` (clean production bundle).
 
 ## What Is Unverified
-- Physical Android phone lock-screen wake over OEM keyguard (`showWhenLocked` / `turnScreenOn`), physical drop accelerometer calibration, and live carrier SMS delivery to Botswana (`+267`) mobile numbers.
+- Physical Android phone hardware sensors (haptic motor, native accelerometer hardware events, physical screen lock wake over OEM keyguard), and live carrier SMS delivery to Botswana (`+267`) mobile numbers.
 - Live YAMNet TFLite model weights (`DEMO_MODE` deterministic profiles are used and explicitly labelled `DETERMINISTIC_DEMO`).
 - Live RTSP/MJPEG municipal camera streams (seeded Gaborone CBD cameras are opt-in demo entries).
 - Live local PostgreSQL container (Docker daemon requires Windows elevated GUI privilege; schema validated via SQL AST and unit test suite).
+- Setswana strings marked `NEEDS_NATIVE_REVIEW` in `docs/SETSWANA_L10N.md` pending review by native Setswana speakers.
 
 ## Exact Next Step
-Proceed to Phase G3: Mobile: covert SOS, disguise, safe network (two-mode home, calculator disguise, 3-shake trigger, safe network screen with max 5 contacts, quick exit, local encryption, Setswana + English l10n).
+Proceed to Phase G4: Mobile: Evidence Mode (survivor-owned documentation: silent capture of audio, photo, note; encrypted local vault; sync state with server-signed manifests; case bundle share flow; soft/hard delete).
 

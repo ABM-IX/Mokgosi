@@ -364,4 +364,302 @@ class IncidentApi {
       return false;
     }
   }
+
+  // --- Safe Network Contacts ---
+
+  static Future<List<Map<String, dynamic>>> fetchTrustedContacts(String userId) async {
+    if (simulateOfflineMode) {
+      final cached = await PlatformStore.read('cached_contacts_$userId');
+      if (cached != null) {
+        return List<Map<String, dynamic>>.from(jsonDecode(cached) as List);
+      }
+      return [];
+    }
+    try {
+      final uri = Uri.parse('${MokgosiConfig.apiBase}/api/v1/network/contacts?user_id=$userId');
+      final res = await httpClient.get(uri, headers: {'X-Device-Key': MokgosiConfig.deviceApiKey});
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final list = List<Map<String, dynamic>>.from(data['contacts'] ?? []);
+        await PlatformStore.write('cached_contacts_$userId', jsonEncode(list));
+        return list;
+      }
+    } catch (_) {}
+    final cached = await PlatformStore.read('cached_contacts_$userId');
+    if (cached != null) {
+      return List<Map<String, dynamic>>.from(jsonDecode(cached) as List);
+    }
+    return [];
+  }
+
+  static Future<Map<String, dynamic>?> addTrustedContact({
+    required String userId,
+    required String name,
+    required String phone,
+    String role = 'TRUSTED_PERSON',
+    int priority = 1,
+    List<String>? notifyOn,
+  }) async {
+    if (simulateOfflineMode) {
+      final local = {
+        'id': const Uuid().v4(),
+        'user_id': userId,
+        'name': name,
+        'phone_e164': phone,
+        'role': role,
+        'priority': priority,
+        'notify_on': notifyOn ?? ['P1_CRITICAL', 'P2_HIGH', 'P3_VERIFY'],
+        'is_active': true,
+      };
+      final existing = await fetchTrustedContacts(userId);
+      existing.add(local);
+      await PlatformStore.write('cached_contacts_$userId', jsonEncode(existing));
+      return local;
+    }
+    try {
+      final uri = Uri.parse('${MokgosiConfig.apiBase}/api/v1/network/contacts');
+      final res = await httpClient.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Device-Key': MokgosiConfig.deviceApiKey,
+        },
+        body: jsonEncode({
+          'user_id': userId,
+          'name': name,
+          'phone_e164': phone,
+          'role': role,
+          'priority': priority,
+          'notify_on': notifyOn ?? ['P1_CRITICAL', 'P2_HIGH', 'P3_VERIFY', 'EXPLICIT_SOS', 'DURESS_PIN', 'COVERT_SOS', 'SHAKE_SOS'],
+        }),
+      );
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final data = jsonDecode(res.body);
+        return Map<String, dynamic>.from(data['contact'] ?? {});
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  static Future<bool> deleteTrustedContact(String contactId) async {
+    if (simulateOfflineMode) return true;
+    try {
+      final uri = Uri.parse('${MokgosiConfig.apiBase}/api/v1/network/contacts/$contactId');
+      final res = await httpClient.delete(uri, headers: {'X-Device-Key': MokgosiConfig.deviceApiKey});
+      return res.statusCode >= 200 && res.statusCode < 300;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // --- Verified Referral Partners ---
+
+  static Future<List<Map<String, dynamic>>> fetchVerifiedReferrals({String? region, String? type}) async {
+    if (simulateOfflineMode) {
+      final cached = await PlatformStore.read('cached_referrals');
+      if (cached != null) {
+        return List<Map<String, dynamic>>.from(jsonDecode(cached) as List);
+      }
+      return [];
+    }
+    try {
+      var url = '${MokgosiConfig.apiBase}/api/v1/referrals';
+      final params = <String>[];
+      if (region != null) params.add('region=$region');
+      if (type != null) params.add('type=$type');
+      if (params.isNotEmpty) url += '?${params.join("&")}';
+
+      final res = await httpClient.get(Uri.parse(url));
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        final list = List<Map<String, dynamic>>.from(data['partners'] ?? []);
+        await PlatformStore.write('cached_referrals', jsonEncode(list));
+        return list;
+      }
+    } catch (_) {}
+    final cached = await PlatformStore.read('cached_referrals');
+    if (cached != null) {
+      return List<Map<String, dynamic>>.from(jsonDecode(cached) as List);
+    }
+    return [];
+  }
+
+  // --- Consents ---
+
+  static Future<bool> updateConsents({
+    required String userId,
+    bool location = true,
+    bool audio = false,
+    bool responderContact = false,
+    bool shareEvidence = false,
+  }) async {
+    final payload = {
+      'user_id': userId,
+      'location': location,
+      'audio': audio,
+      'responder_contact': responderContact,
+      'share_evidence': shareEvidence,
+    };
+    await PlatformStore.write('user_consents_$userId', jsonEncode(payload));
+    if (simulateOfflineMode) return true;
+    try {
+      final uri = Uri.parse('${MokgosiConfig.apiBase}/api/v1/consents');
+      final res = await httpClient.patch(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Device-Key': MokgosiConfig.deviceApiKey,
+        },
+        body: jsonEncode(payload),
+      );
+      return res.statusCode >= 200 && res.statusCode < 300;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<Map<String, dynamic>> fetchConsents(String userId) async {
+    final cached = await PlatformStore.read('user_consents_$userId');
+    if (cached != null) {
+      return Map<String, dynamic>.from(jsonDecode(cached));
+    }
+    if (!simulateOfflineMode) {
+      try {
+        final uri = Uri.parse('${MokgosiConfig.apiBase}/api/v1/consents/$userId');
+        final res = await httpClient.get(uri, headers: {'X-Device-Key': MokgosiConfig.deviceApiKey});
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          final map = Map<String, dynamic>.from(data['consents'] ?? {});
+          await PlatformStore.write('user_consents_$userId', jsonEncode(map));
+          return map;
+        }
+      } catch (_) {}
+    }
+    return {
+      'user_id': userId,
+      'location': true,
+      'audio': false,
+      'responder_contact': false,
+      'share_evidence': false,
+    };
+  }
+
+  // --- Evidence Entries & Sharing ---
+
+  static Future<Map<String, dynamic>?> storeEvidenceEntry({
+    required String userId,
+    required String kind,
+    String? notes,
+    List<int>? fileBytes,
+    String? filename,
+    double? lat,
+    double? lng,
+  }) async {
+    if (simulateOfflineMode) {
+      final local = {
+        'id': const Uuid().v4(),
+        'user_id': userId,
+        'kind': kind,
+        'captured_at_utc': DateTime.now().toUtc().toIso8601String(),
+        'notes': notes,
+        'storage_path': 'local-vault/$filename',
+        'is_synced': false,
+      };
+      final existing = await fetchEvidenceEntries(userId);
+      existing.insert(0, local);
+      await PlatformStore.write('cached_evidence_$userId', jsonEncode(existing));
+      return local;
+    }
+    try {
+      final uri = Uri.parse('${MokgosiConfig.apiBase}/api/v1/evidence-entries');
+      final request = http.MultipartRequest('POST', uri);
+      request.headers['X-Device-Key'] = MokgosiConfig.deviceApiKey;
+      request.fields['user_id'] = userId;
+      request.fields['kind'] = kind;
+      if (notes != null) request.fields['notes'] = notes;
+      if (lat != null) request.fields['lat'] = lat.toString();
+      if (lng != null) request.fields['lng'] = lng.toString();
+      request.fields['source_capture_utc'] = DateTime.now().toUtc().toIso8601String();
+
+      if (fileBytes != null && fileBytes.isNotEmpty) {
+        request.files.add(
+          http.MultipartFile.fromBytes('media_file', fileBytes, filename: filename ?? 'file.bin'),
+        );
+      }
+      final streamed = await httpClient.send(request).timeout(const Duration(seconds: 8));
+      final res = await http.Response.fromStream(streamed);
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        final data = jsonDecode(res.body);
+        return Map<String, dynamic>.from(data['entry'] ?? {});
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  static Future<List<Map<String, dynamic>>> fetchEvidenceEntries(String userId) async {
+    if (!simulateOfflineMode) {
+      try {
+        final uri = Uri.parse('${MokgosiConfig.apiBase}/api/v1/evidence-entries?user_id=$userId');
+        final res = await httpClient.get(uri, headers: {'X-Device-Key': MokgosiConfig.deviceApiKey});
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          final list = List<Map<String, dynamic>>.from(data['entries'] ?? []);
+          await PlatformStore.write('cached_evidence_$userId', jsonEncode(list));
+          return list;
+        }
+      } catch (_) {}
+    }
+    final cached = await PlatformStore.read('cached_evidence_$userId');
+    if (cached != null) {
+      return List<Map<String, dynamic>>.from(jsonDecode(cached) as List);
+    }
+    return [];
+  }
+
+  static Future<bool> deleteEvidenceEntry(String entryId, {bool hardDelete = false}) async {
+    if (simulateOfflineMode) return true;
+    try {
+      final uri = Uri.parse('${MokgosiConfig.apiBase}/api/v1/evidence-entries/$entryId?hard_delete=$hardDelete');
+      final res = await httpClient.delete(uri, headers: {'X-Device-Key': MokgosiConfig.deviceApiKey});
+      return res.statusCode >= 200 && res.statusCode < 300;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<Map<String, dynamic>?> shareEvidenceBundle({
+    required String userId,
+    required List<String> entryIds,
+    required String recipientType,
+    String? notes,
+  }) async {
+    if (simulateOfflineMode) {
+      return {
+        'bundle_id': const Uuid().v4(),
+        'download_url': '/offline-bundle',
+        'recipient_type': recipientType,
+        'entry_count': entryIds.length,
+      };
+    }
+    try {
+      final uri = Uri.parse('${MokgosiConfig.apiBase}/api/v1/evidence-entries/share');
+      final res = await httpClient.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Device-Key': MokgosiConfig.deviceApiKey,
+        },
+        body: jsonEncode({
+          'user_id': userId,
+          'entry_ids': entryIds,
+          'recipient_type': recipientType,
+          'notes': notes,
+        }),
+      );
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        return Map<String, dynamic>.from(jsonDecode(res.body));
+      }
+    } catch (_) {}
+    return null;
+  }
 }
