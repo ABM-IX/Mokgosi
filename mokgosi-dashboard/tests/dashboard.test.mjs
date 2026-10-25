@@ -15,11 +15,13 @@ test('Dashboard modular components exist per Master Architecture v2.0 & G5 Two-P
     'components/HeaderBar.jsx',
     'components/IncidentQueue.jsx',
     'components/TacticalMap.jsx',
+    'components/LiveOperationsMap.jsx',
     'components/CctvStreamModal.jsx',
     'components/EvidenceDocketModal.jsx',
     'components/GbvCaseView.jsx',
     'components/HotspotsView.jsx',
     'config/gbvProtocols.js',
+    'lib/demoData.js',
   ];
   for (const rel of required) {
     assert.equal(fs.existsSync(path.join(srcDir, rel)), true, `Missing ${rel}`);
@@ -141,3 +143,21 @@ test('Realtime alert dispatch-to-dashboard latency benchmark (< 1000 ms)', async
   console.log(`[REALTIME_LATENCY_BENCHMARK] Min: ${min}ms, Median: ${median}ms, Max: ${max}ms (Target: < 1000ms)`);
   assert.ok(max < 1000, `Alert latency must be under 1s, got ${max}ms`);
 });
+
+test('LiveOperationsMap CAD dispatch view provides multi-incident overview, filters, and quick actions', () => {
+  const liveMapSource = fs.readFileSync(
+    path.join(srcDir, 'components', 'LiveOperationsMap.jsx'),
+    'utf8',
+  );
+  const appSource = fs.readFileSync(path.join(srcDir, 'App.jsx'), 'utf8');
+
+  assert.match(liveMapSource, /Citywide Live Operations &amp; Dispatch Map/);
+  assert.match(liveMapSource, /CCTV Mesh/);
+  assert.match(liveMapSource, /150m Radii/);
+  assert.match(liveMapSource, /Center CBD/);
+  assert.match(liveMapSource, /Quick Acknowledge/);
+  assert.match(liveMapSource, /Quick Dispatch/);
+  assert.match(appSource, /Citywide Live Map/);
+});
+
+

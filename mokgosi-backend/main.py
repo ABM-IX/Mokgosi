@@ -10,6 +10,10 @@ from functools import lru_cache
 from typing import Any, Literal, Optional
 from uuid import UUID, uuid4
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response

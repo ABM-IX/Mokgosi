@@ -16,10 +16,12 @@ import {
 import HeaderBar from './components/HeaderBar.jsx';
 import IncidentQueue, { isGbvIncident, sortIncidentsByUrgency } from './components/IncidentQueue.jsx';
 import TacticalMap from './components/TacticalMap.jsx';
+import LiveOperationsMap from './components/LiveOperationsMap.jsx';
 import CctvStreamModal from './components/CctvStreamModal.jsx';
 import EvidenceDocketModal from './components/EvidenceDocketModal.jsx';
 import GbvCaseView from './components/GbvCaseView.jsx';
 import HotspotsView from './components/HotspotsView.jsx';
+import { DEMO_INCIDENTS, DEMO_CAMERAS, DEMO_BREADCRUMBS } from './lib/demoData.js';
 
 const NEXT_STATUS = {
   CREATED: 'ACKNOWLEDGED',
@@ -54,7 +56,7 @@ export default function App() {
   const [selected, setSelected] = useState(null);
   const [activeTab, setActiveTab] = useState('ACTIVE');
   const [activePillar, setActivePillar] = useState('SAFER_COMMUNITIES');
-  const [saferSubView, setSaferSubView] = useState('TACTICAL_MAP'); // 'TACTICAL_MAP' | 'HOTSPOTS'
+  const [saferSubView, setSaferSubView] = useState('LIVE_MAP'); // 'LIVE_MAP' | 'TACTICAL_MAP' | 'HOTSPOTS'
 
   const [cameras, setCameras] = useState([]);
   const [locations, setLocations] = useState([]);
@@ -109,6 +111,21 @@ export default function App() {
   // 2. Fetch incidents list
   const refreshIncidents = useCallback(async () => {
     if (!supabase) {
+      if (DEMO_MODE) {
+        setIncidents(DEMO_INCIDENTS);
+        setCameras(DEMO_CAMERAS);
+        setSelected((curr) => {
+          if (curr) {
+            const updated = DEMO_INCIDENTS.find((x) => x.id === curr.id);
+            if (updated) return updated;
+          }
+          const sorted = sortIncidentsByUrgency(
+            DEMO_INCIDENTS.filter((x) => x.status !== 'RESOLVED'),
+          );
+          return sorted[0] || DEMO_INCIDENTS[0] || null;
+        });
+        return;
+      }
       setError(
         'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to connect to Supabase Realtime.',
       );
@@ -204,7 +221,13 @@ export default function App() {
       if (mounted) setIncidentReferralsList(res?.referrals || []);
     });
 
-    if (!supabase) return undefined;
+    if (!supabase) {
+      if (DEMO_MODE) {
+        setCameras(DEMO_CAMERAS);
+        setLocations(DEMO_BREADCRUMBS[selected.id] || []);
+      }
+      return undefined;
+    }
 
     (async () => {
       const [camRes, locRes, logRes, manRes] = await Promise.all([
@@ -377,21 +400,55 @@ export default function App() {
     setOperatorId('');
   }
 
-  async function handleLifecycle(nextStatus) {
-    if (!selected) return;
+  async function handleLifecycle(nextStatus, targetIncident = null) {
+    const target = targetIncident || selected;
+    if (!target) return;
     setError('');
     try {
-      const res = await patchIncidentLifecycle(selected.id, nextStatus, sessionToken);
+      const res = await patchIncidentLifecycle(target.id, nextStatus, sessionToken);
       if (res?.incident) {
         setIncidents((prev) =>
           prev.map((i) => (i.id === res.incident.id ? res.incident : i)),
         );
-        setSelected(res.incident);
-        if (res.incident.status === 'RESOLVED') {
+        if (selected?.id === target.id) {
+          setSelected(res.incident);
+        }
+        if (res.incident.status === 'RESOLVED' && selected?.id === target.id) {
           setActiveTab('RESOLVED');
         }
+        return;
       }
     } catch (err) {
+      if (DEMO_MODE) {
+        const updated = {
+          ...target,
+          status: nextStatus,
+          acknowledged_by:
+            nextStatus === 'ACKNOWLEDGED'
+              ? operatorId || 'DEMO_RESPONDER_01'
+              : target.acknowledged_by,
+          acknowledged_at:
+            nextStatus === 'ACKNOWLEDGED' ? new Date().toISOString() : target.acknowledged_at,
+          assigned_to:
+            nextStatus === 'ASSIGNED'
+              ? operatorId || 'DEMO_RESPONDER_01'
+              : target.assigned_to,
+          assigned_at:
+            nextStatus === 'ASSIGNED' ? new Date().toISOString() : target.assigned_at,
+          dispatched_at:
+            nextStatus === 'DISPATCHED' ? new Date().toISOString() : target.dispatched_at,
+          resolved_at:
+            nextStatus === 'RESOLVED' ? new Date().toISOString() : target.resolved_at,
+        };
+        setIncidents((prev) => prev.map((i) => (i.id === target.id ? updated : i)));
+        if (selected?.id === target.id) {
+          setSelected(updated);
+          if (nextStatus === 'RESOLVED') {
+            setActiveTab('RESOLVED');
+          }
+        }
+        return;
+      }
       setError(err.message);
     }
   }
@@ -529,28 +586,46 @@ export default function App() {
         />
 
         <section className="details" aria-label="Selected Incident Details">
+          {activePillar === 'SAFER_COMMUNITIES' && (
+            <div className="subview-bar" role="tablist">
+              <button
+                type="button"
+                className={`subview-btn ${saferSubView === 'LIVE_MAP' ? 'active' : ''}`}
+                onClick={() => setSaferSubView('LIVE_MAP')}
+              >
+                Citywide Live Map
+              </button>
+              <button
+                type="button"
+                className={`subview-btn ${saferSubView === 'TACTICAL_MAP' ? 'active' : ''}`}
+                onClick={() => setSaferSubView('TACTICAL_MAP')}
+              >
+                Tactical Live Map
+              </button>
+              <button
+                type="button"
+                className={`subview-btn ${saferSubView === 'HOTSPOTS' ? 'active' : ''}`}
+                onClick={() => setSaferSubView('HOTSPOTS')}
+              >
+                Community Hotspots &amp; Density (Aggregated)
+              </button>
+            </div>
+          )}
+
           {activePillar === 'SAFER_COMMUNITIES' && saferSubView === 'HOTSPOTS' ? (
-            <HotspotsView onBackToLiveMap={() => setSaferSubView('TACTICAL_MAP')} />
+            <HotspotsView onBackToLiveMap={() => setSaferSubView('LIVE_MAP')} />
+          ) : activePillar === 'SAFER_COMMUNITIES' && saferSubView === 'LIVE_MAP' ? (
+            <LiveOperationsMap
+              incidents={incidents}
+              selectedId={selected?.id}
+              onSelectIncident={(inc) => setSelected(inc)}
+              onLifecycle={handleLifecycle}
+              cameras={cameras.length > 0 ? cameras : DEMO_CAMERAS}
+              onOpenCameraStream={handleOpenCameraModal}
+              activePillar={activePillar}
+            />
           ) : selected ? (
             <>
-              {activePillar === 'SAFER_COMMUNITIES' && (
-                <div className="subview-bar" role="tablist">
-                  <button
-                    type="button"
-                    className={`subview-btn ${saferSubView === 'TACTICAL_MAP' ? 'active' : ''}`}
-                    onClick={() => setSaferSubView('TACTICAL_MAP')}
-                  >
-                    Tactical Live Map
-                  </button>
-                  <button
-                    type="button"
-                    className={`subview-btn ${saferSubView === 'HOTSPOTS' ? 'active' : ''}`}
-                    onClick={() => setSaferSubView('HOTSPOTS')}
-                  >
-                    Community Hotspots &amp; Density (Aggregated)
-                  </button>
-                </div>
-              )}
 
               {selected.trigger_type === 'DURESS_PIN' && (
                 <div className="duress-banner" role="alert">
@@ -717,9 +792,21 @@ export default function App() {
               )}
             </>
           ) : (
-            <div className="panel empty">
-              No incident selected in this pillar. Incoming SOS, Duress, and Check-In alerts appear here automatically.
-            </div>
+            activePillar === 'SAFER_COMMUNITIES' ? (
+              <LiveOperationsMap
+                incidents={incidents}
+                selectedId={null}
+                onSelectIncident={(inc) => setSelected(inc)}
+                onLifecycle={handleLifecycle}
+                cameras={cameras.length > 0 ? cameras : DEMO_CAMERAS}
+                onOpenCameraStream={handleOpenCameraModal}
+                activePillar={activePillar}
+              />
+            ) : (
+              <div className="panel empty">
+                No incident selected in this pillar. Incoming SOS, Duress, and Check-In alerts appear here automatically.
+              </div>
+            )
           )}
         </section>
       </div>

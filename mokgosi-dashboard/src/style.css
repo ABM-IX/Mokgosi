@@ -1148,3 +1148,365 @@ button:disabled {
   }
 }
 
+/* ==========================================================================
+   LIVE OPERATIONS MAP & CAD DISPATCH OVERLAY
+   ========================================================================== */
+.live-map-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.live-map-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.live-map-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.map-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--color-surface-inset);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+}
+
+.control-label {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  font-weight: 700;
+  margin-right: 2px;
+}
+
+.filter-chip {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 700;
+  transition: all 0.15s ease;
+}
+
+.filter-chip:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface-elevated);
+}
+
+.filter-chip.active {
+  background: var(--color-surface-elevated);
+  border-color: var(--color-border);
+  color: var(--color-text-primary);
+}
+
+.filter-chip.p1-chip.active {
+  background: #4c0519;
+  border-color: var(--color-p1);
+  color: #fecdd3;
+}
+
+.filter-chip.p2-chip.active {
+  background: #451a03;
+  border-color: var(--color-p2);
+  color: #fde68a;
+}
+
+.filter-chip.p3-chip.active {
+  background: #082f49;
+  border-color: var(--color-p3);
+  color: #bae6fd;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-label input[type='checkbox'] {
+  accent-color: var(--color-accent);
+}
+
+.btn-recenter {
+  background: var(--color-surface-elevated);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 9px;
+  border-radius: var(--radius-sm);
+}
+
+.btn-recenter:hover {
+  border-color: var(--color-accent);
+}
+
+.live-operations-canvas {
+  height: 520px;
+  position: relative;
+}
+
+@keyframes mokgosi-pulse-ring {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(225, 29, 72, 0.75);
+  }
+  70% {
+    transform: scale(1.1);
+    box-shadow: 0 0 0 16px rgba(225, 29, 72, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(225, 29, 72, 0);
+  }
+}
+
+.mokgosi-pulse-marker div {
+  animation: mokgosi-pulse-ring 1.8s infinite ease-out;
+}
+
+/* --- Floating HUD & Legend Overlays --- */
+.map-hud-overlay {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 1000;
+  display: flex;
+  gap: 8px;
+  background: rgba(13, 26, 41, 0.92);
+  backdrop-filter: blur(8px);
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.hud-metric {
+  display: flex;
+  flex-direction: column;
+  padding: 0 8px;
+  border-right: 1px solid var(--color-border);
+}
+
+.hud-metric:last-child {
+  border-right: none;
+}
+
+.hud-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+.hud-val {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--color-text-primary);
+}
+
+.hud-critical .hud-val {
+  color: #fb7185;
+}
+
+.map-legend-overlay {
+  position: absolute;
+  bottom: 14px;
+  left: 14px;
+  z-index: 1000;
+  background: rgba(13, 26, 41, 0.92);
+  backdrop-filter: blur(8px);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.p1-dot {
+  background: #e11d48;
+  box-shadow: 0 0 6px #e11d48aa;
+}
+
+.p2-dot {
+  background: #f59e0b;
+}
+
+.p3-dot {
+  background: #0ea5e9;
+}
+
+.legend-box {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.cam-box {
+  background: #10b981;
+}
+
+/* --- Leaflet Popup Theming --- */
+.leaflet-popup-content-wrapper {
+  background: var(--color-surface-elevated) !important;
+  color: var(--color-text-primary) !important;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md) !important;
+  padding: 0 !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6) !important;
+}
+
+.leaflet-popup-tip {
+  background: var(--color-surface-elevated) !important;
+}
+
+.popup-inner {
+  padding: 14px 16px;
+  min-width: 210px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.popup-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.popup-priority-badge {
+  font-size: 9px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.popup-priority-badge.p1_critical {
+  background: var(--color-p1);
+  color: #fff;
+}
+
+.popup-priority-badge.p2_high {
+  background: var(--color-p2);
+  color: #000;
+}
+
+.popup-priority-badge.p3_verify {
+  background: var(--color-p3);
+  color: #fff;
+}
+
+.popup-status-badge {
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  font-weight: 700;
+}
+
+.popup-title strong {
+  font-size: 14px;
+  color: var(--color-text-primary);
+  display: block;
+}
+
+.popup-trigger {
+  font-size: 11px;
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+.popup-meta {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  line-height: 1.45;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  padding: 6px 0;
+}
+
+.popup-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.popup-action-btn {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  border: none;
+  cursor: pointer;
+  text-align: center;
+}
+
+.popup-action-btn.btn-primary {
+  background: var(--color-accent-strong);
+  color: #fff;
+}
+
+.popup-action-btn.btn-primary:hover {
+  background: var(--color-accent);
+}
+
+.popup-action-btn.btn-ack {
+  background: #1e3a8a;
+  color: #dbeafe;
+}
+
+.popup-action-btn.btn-dispatch {
+  background: #78350f;
+  color: #fef3c7;
+}
+
+.popup-action-btn.btn-cctv {
+  background: #064e3b;
+  color: #a7f3d0;
+  border: 1px solid #10b981;
+}
+
+.cam-badge {
+  font-size: 10px;
+  color: #6ee7b7;
+  font-weight: 700;
+}
+
+
