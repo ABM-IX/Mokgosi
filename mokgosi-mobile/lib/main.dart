@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'config/mokgosi_config.dart';
+import 'screens/app_home_screen.dart';
 import 'screens/escort_home.dart';
+import 'screens/login_screen.dart';
 
 export 'config/l10n.dart';
 export 'config/mokgosi_config.dart';
@@ -11,6 +14,7 @@ export 'screens/decoy_safe_screen.dart';
 export 'screens/escort_home.dart';
 export 'screens/evidence_screen.dart';
 export 'screens/get_help_screen.dart';
+export 'screens/login_screen.dart';
 export 'screens/pillar_selection_screen.dart';
 export 'screens/safe_network_screen.dart';
 export 'screens/safety_setup_screen.dart';
@@ -19,12 +23,17 @@ export 'services/incident_api.dart';
 export 'services/motion_telemetry.dart';
 export 'services/notification_guard.dart';
 
-void main() => runApp(const MokgosiApp());
+void main() => runApp(const MokgosiApp(requireAuth: true));
 
 class MokgosiApp extends StatelessWidget {
-  const MokgosiApp({super.key, this.home});
+  const MokgosiApp({
+    super.key,
+    this.home,
+    this.requireAuth = false,
+  });
 
   final Widget? home;
+  final bool requireAuth;
 
   @override
   Widget build(BuildContext context) {
@@ -39,7 +48,48 @@ class MokgosiApp extends StatelessWidget {
         scaffoldBackgroundColor: const Color(0xff081421),
         useMaterial3: true,
       ),
-      home: home ?? const EscortHome(),
+      home: home ?? (requireAuth ? const AuthGate() : const EscortHome()),
+    );
+  }
+}
+
+class AuthGate extends StatefulWidget {
+  const AuthGate({super.key});
+
+  @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  late Future<String?> _authFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _authFuture = PlatformStore.read('auth_user_id');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String?>(
+      future: _authFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            backgroundColor: Color(0xff081421),
+            body: Center(
+              child: CircularProgressIndicator(
+                color: Color(0xff12a879),
+              ),
+            ),
+          );
+        }
+        final userId = snapshot.data;
+        if (userId != null && userId.isNotEmpty) {
+          return const AppHomeScreen();
+        }
+        return const LoginScreen();
+      },
     );
   }
 }

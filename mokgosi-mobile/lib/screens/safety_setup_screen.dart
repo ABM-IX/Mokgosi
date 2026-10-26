@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../config/mokgosi_config.dart';
 import '../services/incident_api.dart';
+import 'login_screen.dart';
 
 /// Trusted Person & PIN configuration screen with E.164 phone validation,
 /// salted SHA-256 PIN updates, and a survivor data-deletion action.
@@ -29,6 +30,7 @@ class _SafetySetupScreenState extends State<SafetySetupScreen> {
   late bool _pinToGaboroneCbd;
   String? _errorMessage;
   String? _statusMessage;
+  String _currentUserId = 'MOKGOSI_DEMO_USER';
 
   @override
   void initState() {
@@ -39,6 +41,14 @@ class _SafetySetupScreenState extends State<SafetySetupScreen> {
     _duressPinController = TextEditingController();
     _durationSeconds = widget.profile.escortDurationSeconds;
     _pinToGaboroneCbd = widget.profile.pinToGaboroneDemoCbd;
+    _loadAuthInfo();
+  }
+
+  Future<void> _loadAuthInfo() async {
+    final uid = await PlatformStore.read('auth_user_id');
+    if (mounted && uid != null && uid.isNotEmpty) {
+      setState(() => _currentUserId = uid);
+    }
   }
 
   @override
@@ -229,6 +239,13 @@ class _SafetySetupScreenState extends State<SafetySetupScreen> {
               onPressed: _deleteMyData,
               icon: const Icon(Icons.delete_outline, color: Color(0xffff7676)),
               label: const Text('Delete My Personal Data'),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              key: const Key('btn_sign_out'),
+              onPressed: () => LoginScreen.signOut(context),
+              icon: const Icon(Icons.logout, color: Color(0xff94a3b8)),
+              label: Text('Sign Out ($_currentUserId)'),
             ),
           ],
         ),
