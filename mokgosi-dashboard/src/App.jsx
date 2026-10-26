@@ -505,6 +505,17 @@ export default function App() {
     }
   }
 
+  const handleSelectIncident = useCallback((inc) => {
+    if (!inc) return;
+    setSelected(inc);
+    if (isGbvIncident(inc)) {
+      setActivePillar('GBV_RESPONSE');
+    } else {
+      setActivePillar('SAFER_COMMUNITIES');
+      setSaferSubView('TACTICAL_MAP');
+    }
+  }, []);
+
   const expectedNextStatus = selected ? NEXT_STATUS[selected.status] : null;
   const aiModelLabel = selected?.ai_context?.model
     ? selected.ai_context.model === 'DETERMINISTIC_DEMO'
@@ -579,7 +590,7 @@ export default function App() {
         <IncidentQueue
           incidents={incidents}
           selectedId={selected?.id}
-          onSelect={(inc) => setSelected(inc)}
+          onSelect={handleSelectIncident}
           activeTab={activeTab}
           onTabChange={setActiveTab}
           activePillar={activePillar}
@@ -618,7 +629,7 @@ export default function App() {
             <LiveOperationsMap
               incidents={incidents}
               selectedId={selected?.id}
-              onSelectIncident={(inc) => setSelected(inc)}
+              onSelectIncident={handleSelectIncident}
               onLifecycle={handleLifecycle}
               cameras={cameras.length > 0 ? cameras : DEMO_CAMERAS}
               onOpenCameraStream={handleOpenCameraModal}
@@ -643,6 +654,16 @@ export default function App() {
               <div className="panel">
                 <div className="title">
                   <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        style={{ padding: '3px 8px', fontSize: '11px', border: '1px solid var(--color-border)', borderRadius: '4px', cursor: 'pointer' }}
+                        onClick={() => setSaferSubView('LIVE_MAP')}
+                      >
+                        ← Citywide Map
+                      </button>
+                    </div>
                     <h2>
                       Incident #{selected.id.slice(0, 8)} · {selected.trigger_type}
                     </h2>
@@ -795,8 +816,8 @@ export default function App() {
             activePillar === 'SAFER_COMMUNITIES' ? (
               <LiveOperationsMap
                 incidents={incidents}
-                selectedId={null}
-                onSelectIncident={(inc) => setSelected(inc)}
+                selectedId={selected?.id}
+                onSelectIncident={handleSelectIncident}
                 onLifecycle={handleLifecycle}
                 cameras={cameras.length > 0 ? cameras : DEMO_CAMERAS}
                 onOpenCameraStream={handleOpenCameraModal}

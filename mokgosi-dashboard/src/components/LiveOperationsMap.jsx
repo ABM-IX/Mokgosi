@@ -76,6 +76,16 @@ export default function LiveOperationsMap({
   const [mapCenter, setMapCenter] = useState([-24.656, 25.912]);
   const [mapZoom, setMapZoom] = useState(14);
 
+  React.useEffect(() => {
+    if (selectedId) {
+      const target = incidents.find((i) => i.id === selectedId);
+      if (target && target.lat && target.lng) {
+        setMapCenter([Number(target.lat), Number(target.lng)]);
+        setMapZoom(16);
+      }
+    }
+  }, [selectedId, incidents]);
+
   const filteredIncidents = useMemo(() => {
     return incidents.filter((inc) => {
       if (!inc.lat || !inc.lng) return false;
@@ -103,6 +113,11 @@ export default function LiveOperationsMap({
     setMapCenter([-24.655, 25.912]);
     setMapZoom(14);
   }
+
+  const selectedIncident = useMemo(
+    () => (selectedId ? incidents.find((i) => i.id === selectedId) || null : null),
+    [incidents, selectedId],
+  );
 
   return (
     <div className="panel live-map-panel" aria-label="Citywide Operations & Tactical Map">
@@ -176,6 +191,98 @@ export default function LiveOperationsMap({
           </div>
         </div>
       </div>
+
+      {selectedIncident && (
+        <div
+          className="live-selected-incident-bar"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            background: 'var(--color-surface-elevated, #16202c)',
+            border: '1px solid var(--color-border, #2a3a4d)',
+            padding: '10px 14px',
+            borderRadius: 'var(--radius-sm, 6px)',
+            marginBottom: '10px',
+            flexWrap: 'wrap',
+            gap: '10px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <span
+              className={`badge ${
+                selectedIncident.priority === 'P1_CRITICAL'
+                  ? 'p1'
+                  : selectedIncident.priority === 'P2_HIGH'
+                  ? 'p2'
+                  : 'p3'
+              }`}
+            >
+              {selectedIncident.priority}
+            </span>
+            <strong>
+              Incident #{selectedIncident.id.slice(0, 8)} · {selectedIncident.trigger_type}
+            </strong>
+            <span style={{ fontSize: '12px', color: 'var(--color-text-secondary, #94a3b8)' }}>
+              Status: <b style={{ color: '#fff' }}>{selectedIncident.status}</b> · GPS:{' '}
+              {Number(selectedIncident.lat).toFixed(4)}, {Number(selectedIncident.lng).toFixed(4)}
+            </span>
+          </div>
+
+          <div className="actions" style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {selectedIncident.status === 'CREATED' && onLifecycle && (
+              <button
+                type="button"
+                style={{ background: '#0284c7', color: '#fff' }}
+                onClick={() => onLifecycle('ACKNOWLEDGED', selectedIncident)}
+              >
+                1. Acknowledge
+              </button>
+            )}
+            {selectedIncident.status === 'ACKNOWLEDGED' && onLifecycle && (
+              <button
+                type="button"
+                style={{ background: '#2563eb', color: '#fff' }}
+                onClick={() => onLifecycle('ASSIGNED', selectedIncident)}
+              >
+                2. Assign
+              </button>
+            )}
+            {selectedIncident.status === 'ASSIGNED' && onLifecycle && (
+              <button
+                type="button"
+                style={{ background: '#059669', color: '#fff' }}
+                onClick={() => onLifecycle('DISPATCHED', selectedIncident)}
+              >
+                3. Dispatch Unit
+              </button>
+            )}
+            {selectedIncident.status === 'DISPATCHED' && onLifecycle && (
+              <button
+                type="button"
+                className="muted"
+                onClick={() => onLifecycle('RESOLVED', selectedIncident)}
+              >
+                4. Resolve
+              </button>
+            )}
+            {onSelectIncident && (
+              <button
+                type="button"
+                className="btn-outline"
+                style={{
+                  background: 'transparent',
+                  border: '1px solid var(--color-accent, #35c898)',
+                  color: 'var(--color-accent, #35c898)',
+                }}
+                onClick={() => onSelectIncident(selectedIncident)}
+              >
+                Tactical Map &amp; CCTV →
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="map live-operations-canvas">
         <MapContainer
