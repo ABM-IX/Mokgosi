@@ -11,13 +11,13 @@ services:
       - key: PYTHON_VERSION
         value: 3.11.3
       - key: SUPABASE_URL
-        sync: false
+        value: https://svkqdjstcghtdjgmqzpd.supabase.co
       - key: SUPABASE_KEY
         sync: false
       - key: ED25519_PRIVATE_KEY_SEED
-        sync: false
+        value: c44d881fbbe812560c54e069c249b0c37c75ef994109b5bee52ba571f64983de
       - key: DEVICE_API_KEYS
-        sync: false
+        value: mokgosi-device-key-live-2026
       - key: DEMO_MODE
         value: "false"
       - key: NOTIFIER_PROVIDER
@@ -30,3 +30,19 @@ services:
         value: "30"
       - key: EVIDENCE_STORAGE_BUCKET
         value: "evidence-media"
+
+  - type: static
+    name: mokgosi-dashboard
+    rootDir: mokgosi-dashboard
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    autoDeploy: false
+    envVars:
+      - key: VITE_SUPABASE_URL
+        value: https://svkqdjstcghtdjgmqzpd.supabase.co
+      - key: VITE_SUPABASE_ANON_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN2a3FkanN0Y2dodGRqZ21xenBkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI5NDk0NjcsImV4cCI6MjEwODUyNTQ2N30.kY1PJUrNoOvYi_pU0C2zdWO2-G2PUyiynOu1nnSeseM
+      - key: VITE_API_URL
+        value: https://mokgosi-backend.onrender.com
+      - key: VITE_DEMO_MODE
+        value: "false"
