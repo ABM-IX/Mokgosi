@@ -347,6 +347,17 @@ def _nearby_cameras(client: Client, payload: IncidentTriggerPayload) -> list[dic
         return []
 
 
+@app.get("/")
+def root() -> dict[str, Any]:
+    return {
+        "service": "MOKGOSI Incident & Evidence Engine",
+        "version": "2.1",
+        "status": "online",
+        "docs": "/docs",
+        "health": "/health",
+    }
+
+
 @app.get("/health")
 def health() -> dict[str, Any]:
     db_reachable = False

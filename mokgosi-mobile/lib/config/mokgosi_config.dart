@@ -92,11 +92,11 @@ class PinGuard {
 class MokgosiConfig {
   static const apiBase = String.fromEnvironment(
     'MOKGOSI_API_URL',
-    defaultValue: 'http://10.0.2.2:8000',
+    defaultValue: 'https://mokgosi-backend.onrender.com',
   );
   static const deviceApiKey = String.fromEnvironment(
     'MOKGOSI_DEVICE_API_KEY',
-    defaultValue: 'demo-device-key',
+    defaultValue: 'DEMO_DEVICE_KEY',
   );
   static const trustedContactPhone = String.fromEnvironment(
     'MOKGOSI_TRUSTED_CONTACT_PHONE',
