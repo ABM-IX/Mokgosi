@@ -65,7 +65,6 @@ export default function LandingPortal({
 
       {/* Hero Section */}
       <section className="portal-hero">
-        <div className="portal-hero-badge">FNB Hackathon · Safer Communities &amp; GBV Response</div>
         <h1 className="portal-hero-heading">
           Two Pillars. One Fault-Tolerant Engine.
         </h1>
@@ -243,7 +242,7 @@ export default function LandingPortal({
                   >
                     Auto-Fill Demo Dispatcher Credentials
                   </button>
-                  <small>Pre-loads verified test token for instant hackathon evaluation.</small>
+                  <small>Fills in the demo responder for sample data.</small>
                 </div>
               )}
             </form>
@@ -258,7 +257,7 @@ export default function LandingPortal({
       {/* Footer */}
       <footer className="portal-footer">
         <div>
-          <strong>MOKGOSI EMERGENCY NETWORK</strong> · Built for FNB Hackathon
+          <strong>MOKGOSI</strong>
         </div>
         <div className="portal-footer-links">
           <span>Gaborone &amp; National Jurisdiction</span> · <span>Setswana &amp; English</span>

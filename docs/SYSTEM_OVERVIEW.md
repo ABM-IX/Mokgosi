@@ -1,7 +1,7 @@
 # MOKGOSI — Master System Overview & Product Specification
 
 > **Tagline:** *"Your call for help. A connected response."*  
-> **Track:** FNB Hackathon — Safer Communities AND Gender-Based Violence (GBV) Response  
+> **Focus:** Personal safety and gender-based violence (GBV) response in Botswana  
 > **Target Jurisdiction:** Botswana (National & Municipal Deployment)  
 > **Architecture Version:** 3.0 (Two-Pillar Unified Safety Engine)
 
@@ -9,9 +9,9 @@
 
 ## 1. Executive Summary: What Mokgosi Is All About
 
-**Mokgosi** (a Setswana word representing a communal alarm, emergency cry, or collective call for help) is a production-grade personal safety and gender-based violence (GBV) response platform. 
+**Mokgosi** (a Setswana word representing a communal alarm, emergency cry, or collective call for help) is a personal safety and gender-based violence (GBV) response platform, developed as a personal project and not yet released. 
 
-The platform bridges a critical national challenge in Botswana: while the FNB Hackathon theme calls for both **Safer Communities** and **GBV Response**, conventional safety applications treat emergency response as a single, generic "panic button" with live tracking. In reality, public safety and domestic GBV represent two fundamentally different threat environments with conflicting physical constraints:
+The platform addresses a gap in Botswana's safety tools: conventional safety applications treat emergency response as a single, generic "panic button" with live tracking. In reality, public safety and domestic GBV represent two fundamentally different threat environments with conflicting physical constraints:
 
 1. **Pillar A — Safer Communities (Public Space):**
    The threat is an unknown assailant, physical fall, or sudden crisis on a street or commute. The user wants visible tracking, active timed check-ins, deterrence, municipal CCTV coverage, and rapid emergency dispatch.
@@ -231,7 +231,7 @@ Every feature claimed in Mokgosi has been tested and verified across all test ru
 - **Product & Architecture Specification:** [`docs/ARCHITECTURE.md`](file:///c:/Users/araba/Desktop/Projects/Mokgosi/docs/ARCHITECTURE.md)
 - **Threat Model & Safety Analysis:** [`docs/PRIVACY_AND_SAFETY.md`](file:///c:/Users/araba/Desktop/Projects/Mokgosi/docs/PRIVACY_AND_SAFETY.md)
 - **Partner Verification Checklist:** [`docs/PARTNERS_TODO.md`](file:///c:/Users/araba/Desktop/Projects/Mokgosi/docs/PARTNERS_TODO.md)
-- **Pitch & Live Demonstration Script:** [`docs/DEMO_SCRIPT.md`](file:///c:/Users/araba/Desktop/Projects/Mokgosi/docs/DEMO_SCRIPT.md)
+- **Demo Walkthrough:** [`docs/DEMO_SCRIPT.md`](file:///c:/Users/araba/Desktop/Projects/Mokgosi/docs/DEMO_SCRIPT.md)
 - **Fault-Tolerance Rehearsal Guide:** [`docs/REHEARSAL.md`](file:///c:/Users/araba/Desktop/Projects/Mokgosi/docs/REHEARSAL.md)
 - **Setswana Localization Log:** [`docs/SETSWANA_L10N.md`](file:///c:/Users/araba/Desktop/Projects/Mokgosi/docs/SETSWANA_L10N.md)
 - **Progress Tracking & Acceptance Log:** [`PROGRESS.md`](file:///c:/Users/araba/Desktop/Projects/Mokgosi/PROGRESS.md)

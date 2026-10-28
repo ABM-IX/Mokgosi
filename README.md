@@ -1,7 +1,7 @@
 # MOKGOSI — Two-Pillar Personal Safety & GBV Response Network
 
 **Tagline:** *"Your call for help. A connected response."*  
-**Track:** FNB Hackathon — Safer Communities AND Gender-Based Violence (GBV) Response  
+**Focus:** Personal safety and gender-based violence (GBV) response in Botswana  
 **Repository:** [https://github.com/ABM-IX/Mokgosi](https://github.com/ABM-IX/Mokgosi)
 
 ---
@@ -104,7 +104,7 @@ Mokgosi/
 │   ├── android/                # Android native wrapper (FLAG_SECURE, CalculatorAlias launcher)
 │   └── test/                   # Flutter test suite (27 unit & widget tests)
 ├── render.yaml                 # Root multi-service deployment blueprint for Render
-└── docs/                       # In-depth architectural, privacy, and pitch documentation
+└── docs/                       # Architecture, privacy, and demo documentation
 ```
 
 ---
@@ -352,6 +352,6 @@ For detailed engineering rationales, partner requirements, and demo scripts:
 - **Threat Model & Survivor Safety:** [`docs/PRIVACY_AND_SAFETY.md`](docs/PRIVACY_AND_SAFETY.md)
 - **Partner Verification & NGO Handoff:** [`docs/PARTNERS_TODO.md`](docs/PARTNERS_TODO.md)
 - **Setswana Localization Guide:** [`docs/SETSWANA_L10N.md`](docs/SETSWANA_L10N.md)
-- **Hackathon Pitch Script (4.5 Minutes):** [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)
+- **Demo Walkthrough:** [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md)
 - **Fault-Tolerance Rehearsal Guide:** [`docs/REHEARSAL.md`](docs/REHEARSAL.md)
 - **Project Progress & Test Audit Log:** [`PROGRESS.md`](PROGRESS.md)

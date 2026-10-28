@@ -2,7 +2,7 @@
 
 > [!IMPORTANT]
 > **REVIEW STATUS: `NEEDS_NATIVE_REVIEW`**
-> The Setswana translations provided in the mobile client have been compiled for functional completeness and hackathon review.
+> The Setswana translations provided in the mobile client have been compiled for functional completeness and internal testing.
 > **THEY MUST NOT BE PRESENTED AS NATIVE-VERIFIED TRANSLATIONS** until reviewed by a qualified Setswana linguist or native speaker from Botswana.
 
 | Key | English String | Setswana String (`NEEDS_NATIVE_REVIEW`) | Context |

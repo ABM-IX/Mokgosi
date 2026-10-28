@@ -1,6 +1,6 @@
 # MOKGOSI — Coding Agent Brief: Close the Gap Between Code and Spec
 
-You are working on **MOKGOSI — Personal Safety & Response Network** ("Your call for help. A connected response."), our entry to the **FNB hackathon, theme: Safer Communities & Gender-Based Violence (GBV) Response**. The repo has three apps plus a schema: `mokgosi-backend/` (FastAPI), `mokgosi-mobile/` (Flutter), `mokgosi-dashboard/` (React + Vite + Leaflet), `database/schema.sql` (Supabase + PostGIS). The master spec is `MOKGOSI Master System Architecture v2.0` (attached/in repo). Read the spec and every source file before changing anything.
+You are working on **MOKGOSI — Personal Safety & Response Network** ("Your call for help. A connected response."), a personal project focused on **personal safety and gender-based violence (GBV) response in Botswana**. The repo has three apps plus a schema: `mokgosi-backend/` (FastAPI), `mokgosi-mobile/` (Flutter), `mokgosi-dashboard/` (React + Vite + Leaflet), `database/schema.sql` (Supabase + PostGIS). The master spec is `MOKGOSI Master System Architecture v2.0` (attached/in repo). Read the spec and every source file before changing anything.
 
 ## 0. The non-negotiables (every change is judged against these)
 
@@ -9,7 +9,7 @@ You are working on **MOKGOSI — Personal Safety & Response Network** ("Your cal
 3. **A false "alert sent" message is worse than no message.** The UI may only claim success after the server returned 2xx. Otherwise queue and retry, and show the honest state.
 4. **Duress must be covert.** After the Duress PIN, nothing on the phone may reveal that an alert was sent (no text, no navigation back to a screen that says so, no visible PIN hints).
 5. **Be honest about what is real vs demo.** Anything simulated is labelled `DEMO` in the data and in the UI. We must never claim YAMNet, SMS delivery, or CCTV integration that isn't actually running.
-6. **Scope discipline.** Hackathon demo first, production-shaped second. Do not add features outside this brief. Keep the 6 build gates in order; do not start a phase until the previous phase's acceptance tests pass. Report results after each phase.
+6. **Scope discipline.** Working demo first, production-shaped second. Do not add features outside this brief. Keep the 6 build gates in order; do not start a phase until the previous phase's acceptance tests pass. Report results after each phase.
 
 ## 1. Audit results you must fix (verified against the code)
 
@@ -32,7 +32,7 @@ I ran compile/build checks. Verified facts first, then the rest of the gaps.
 8. **No live location.** Only one lat/lng ever exists; the spec's "live Google Maps coordinate link" is just a snapshot. Add `POST /api/v1/incidents/{id}/location` (appends to a new `incident_locations` table) and have the dashboard/map follow the latest point. The trusted-person SMS should link to a small public tracking page or at least the latest coordinates.
 9. **Acoustic endpoint:** it never looks at the uploaded audio (profile comes from a form field), and the audio isn't stored, so the hash proves nothing retrievable. Required: (a) gate the `simulated_profile` path behind `DEMO_MODE=true`; (b) real path: classify uploaded audio with YAMNet (TFLite or TF Hub) in a background worker **with a hard timeout and full try/except**, falling back to `status: "UNAVAILABLE"` and *no change to the incident*; (c) upgrade-only logic: P3→P2/P1, P2→P1, never downgrade; (d) store the clip in a Supabase Storage bucket and put the path in the manifest; (e) `model` must say `DETERMINISTIC_DEMO` vs `YAMNet-v1` truthfully. If real YAMNet is not feasible in the time, keep deterministic mode but label it clearly in the dashboard.
 10. **No CCTV snapshot manifest.** Stage 5 requires every audio clip *or snapshot* to be hashed and signed. Add `POST /api/v1/incidents/{id}/cctv-snapshot` (server fetches one frame from the authorized camera's `stream_url` with a short timeout, signs it as `AUTHORIZED_CCTV_FRAME`, and logs `CCTV_SNAPSHOT_CAPTURED`). Must only work for cameras returned by `get_authorized_nearby_cameras` for that incident.
-11. **Evidence vault:** require `ED25519_PRIVATE_KEY_SEED` (fail fast at startup with a clear message, plus a `scripts/gen_key.py`), compute the key once at import, add `GET /api/v1/evidence/public-key` and `POST /api/v1/evidence/verify` (recompute canonical JSON + check signature), and add a standalone `verify_manifest.py` a judge can run offline.
+11. **Evidence vault:** require `ED25519_PRIVATE_KEY_SEED` (fail fast at startup with a clear message, plus a `scripts/gen_key.py`), compute the key once at import, add `GET /api/v1/evidence/public-key` and `POST /api/v1/evidence/verify` (recompute canonical JSON + check signature), and add a standalone `verify_manifest.py` anyone can run offline.
 12. **Audit completeness:** spec says every view, stream open, and status change is logged. Only status changes are. Add `POST /api/v1/incidents/{id}/audit` for `VIEW_INCIDENT`, `OPEN_CCTV_STREAM`, `VIEW_EVIDENCE` (actor from JWT).
 13. Remove unused `numpy` or actually use it; add `pytest` + `httpx` and a real test suite (see Phase 6). `test_pipeline.py` currently only smoke-tests Stage 1.
 
@@ -109,7 +109,7 @@ Keep these small and demo-able:
 
 **Phase 6: Fault-tolerance rehearsal (Stage 6).** Automate what can be automated and write `docs/REHEARSAL.md` for the rest: Wi-Fi off, mic denied, AI worker killed, Supabase down, SMS provider failing, 10 rapid duplicate SOS taps, backend restart mid-escort. *Pass:* core SOS/duress alerts and the trusted-person message still go out in each scenario, and no scenario produces a false "sent" message.
 
-**Phase 7: GBV alignment & pitch readiness.** Implement the GBV-theme items above; update `README.md` (accurate run steps incl. `flutter create`, env vars, demo vs real matrix); add `docs/DEMO_SCRIPT.md` (a 4–5 minute walkthrough: escort → duress → dashboard → CCTV → signed evidence verify → fault-tolerance moment) and `docs/ARCHITECTURE.md` with the flow diagram.
+**Phase 7: GBV alignment & demo readiness.** Implement the GBV-theme items above; update `README.md` (accurate run steps incl. `flutter create`, env vars, demo vs real matrix); add `docs/DEMO_SCRIPT.md` (a 4–5 minute walkthrough: escort → duress → dashboard → CCTV → signed evidence verify → fault-tolerance moment) and `docs/ARCHITECTURE.md` with the flow diagram.
 
 ## 3. Ground rules for how you work
 - Work phase by phase. At the end of each phase output: what changed (files), the commands you ran, the test output, and anything you could **not** verify (e.g., real-device behaviour, SMS delivery) stated plainly. Do not claim a device behaviour you didn't test.

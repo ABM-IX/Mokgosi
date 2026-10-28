@@ -1,4 +1,4 @@
-"""Truthfully labelled deterministic acoustic profiles for the hackathon demo."""
+"""Truthfully labelled deterministic acoustic profiles for demo mode."""
 
 PROFILES = {
     "DISTRESSED": {"status": "ANALYZED", "model": "DETERMINISTIC_DEMO", "tags": ["Demo distress profile", "Screaming (0.91)", "Groan / Struggle (0.78)"], "confidence": 0.91, "escalation_action": "UPGRADED_TO_P1_CRITICAL"},

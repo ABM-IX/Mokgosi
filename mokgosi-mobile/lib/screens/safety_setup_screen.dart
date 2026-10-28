@@ -190,7 +190,7 @@ class _SafetySetupScreenState extends State<SafetySetupScreen> {
                 border: OutlineInputBorder(),
               ),
               items: const <DropdownMenuItem<int>>[
-                DropdownMenuItem(value: 30, child: Text('30 seconds (Hackathon Demo)')),
+                DropdownMenuItem(value: 30, child: Text('30 seconds (demo)')),
                 DropdownMenuItem(value: 300, child: Text('5 minutes')),
                 DropdownMenuItem(value: 900, child: Text('15 minutes')),
               ],

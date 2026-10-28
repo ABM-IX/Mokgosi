@@ -1,11 +1,12 @@
-# MOKGOSI — 4.5-Minute Live Hackathon Demo Script (Two-Pillar Product)
+# MOKGOSI — Demo Walkthrough
 
-**Track:** Safer Communities AND Gender-Based Violence (GBV) Response  
+A guided tour for showing Mokgosi to testers and prospective partner organisations. Run it in demo mode only.
+
 **Tagline:** *"Your call for help. A connected response."*
 
 ---
 
-## Pre-Flight Setup (2 Minutes Before Pitch)
+## Setup
 
 1. **Start FastAPI Backend** (`mokgosi-backend/`):
    ```powershell
@@ -26,17 +27,15 @@
 
 ---
 
-## Minute 0:00 – 0:30 | The Two Pillars & Engineering Core
+## 1. What Mokgosi covers
 
-- **Narrator:**
-  *"The FNB Hackathon calls for both Safer Communities and Gender-Based Violence Response. Mokgosi unifies both on one resilient engine:*
-  - *Pillar A (Safer Communities): Active escort, municipal authorized CCTV mesh, and aggregated community insights for public spaces.*
-  - *Pillar B (GBV Response): Covert help-seeking, survivor-owned evidence, safe-network escalation, and accredited referral routing for private spaces.*
-  *Our core invariant: the safety response works even when AI, the database, or the internet fails."*
+- **Public safety:** timed walks with check-ins, nearby opt-in cameras, and area trends.
+- **GBV response:** silent alerts, a private journal of evidence, a trusted-contact chain, and referrals to support organisations.
+- The alert path keeps working when the audio analysis, the database or the network fails.
 
 ---
 
-## Minute 0:30 – 2:00 | Pillar B: The GBV Story (At Home, Under Coercion)
+## 2. At home: a silent alert
 
 1. **The Disguised Surface:**
    - Present the mobile screen: the app launcher icon and title read **`Calculator`**.
@@ -67,7 +66,7 @@
 
 ---
 
-## Minute 2:00 – 3:30 | Pillar A: Safer Communities (Public Space Active Escort)
+## 3. On the move: a timed walk
 
 1. **Active Escort:**
    - In Mokgosi, tap **`Getting Around Safely`** $\rightarrow$ tap **`Start 30 Second Escort`**.
@@ -87,7 +86,7 @@
 
 ---
 
-## Minute 3:30 – 4:15 | Fault Tolerance & Dual-Routing Resilience
+## 4. No signal
 
 1. **Airplane / Offline Mode Rehearsal:**
    - In the mobile rehearsal drawer, toggle **`Simulate Airplane / Offline Mode`** ON.
@@ -99,11 +98,10 @@
 
 ---
 
-## Minute 4:15 – 4:30 | Honesty, Limitations & Wrap-Up
+## 5. What is not real yet
 
-- *"Everything you saw today runs on real code: 42 backend pytest tests, 21 Flutter widget tests, and 8 dashboard unit tests."*
-- *"We are completely honest about what is verified vs unverified:*
-  - *No partner phone numbers or endorsements were fabricated; referral entries are strictly marked `verified = false` until MOUs are executed.*
-  - *We have not obtained Botswana Data Protection Act certification.*
-  - *All Setswana strings are flagged `NEEDS_NATIVE_REVIEW`.*
-- *Mokgosi is not just an escort app — it is a two-pillar safety ecosystem protecting people in the street and at home."*
+Say this plainly when you demo:
+- No partner organisation has confirmed its details. Referral entries stay `verified = false` until there is a signed agreement, and no phone numbers are invented.
+- Mokgosi has not been reviewed under the Botswana Data Protection Act.
+- The Setswana strings still need review by a native speaker (`NEEDS_NATIVE_REVIEW`).
+- Audio "analysis" in demo mode is a fixed sample profile, not a model.
