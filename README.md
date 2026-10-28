@@ -156,12 +156,11 @@ py -3.11 -m venv .venv
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 
-# 3. Generate an Ed25519 signing key seed
-python scripts/gen_key.py
-# Copy the printed 32-byte hex seed (e.g., c44d881fbbe812560c54e...)
-
-# 4. Configure environment variables
+# 3. Configure environment variables
 Copy-Item .env.example .env
+
+# 4. Generate the Ed25519 signing seed (written into .env; only the public key is printed)
+python scripts/gen_key.py
 ```
 
 #### Configure `.env`
@@ -169,8 +168,9 @@ Update `.env` with your project values:
 ```ini
 SUPABASE_URL=https://svkqdjstcghtdjgmqzpd.supabase.co
 SUPABASE_KEY=<your_supabase_service_role_key>
-ED25519_PRIVATE_KEY_SEED=<your_generated_32_byte_hex_seed>
-DEVICE_API_KEYS=mokgosi-device-key-live-2026,test-device-key-mokgosi-2026
+ED25519_PRIVATE_KEY_SEED=<written by scripts/gen_key.py>
+ED25519_PUBLIC_KEYRING=<written by scripts/gen_key.py on rotation>
+DEVICE_API_KEYS=<long random app key; ships in the APK, so it is only a weak gate>
 DEMO_MODE=false
 NOTIFIER_PROVIDER=console
 ESCALATION_SECONDS=30
@@ -265,7 +265,7 @@ Flutter reads compile-time constants via `--dart-define`.
 ```powershell
 flutter run `
   --dart-define=MOKGOSI_API_URL=https://mokgosi-backend.onrender.com `
-  --dart-define=MOKGOSI_DEVICE_API_KEY=mokgosi-device-key-live-2026 `
+  --dart-define=MOKGOSI_DEVICE_API_KEY=<your-app-key> `
   --dart-define=MOKGOSI_DEMO_MODE=false
 ```
 
@@ -274,7 +274,7 @@ flutter run `
 ```powershell
 flutter run `
   --dart-define=MOKGOSI_API_URL=http://10.0.2.2:8000 `
-  --dart-define=MOKGOSI_DEVICE_API_KEY=test-device-key-mokgosi-2026 `
+  --dart-define=MOKGOSI_DEVICE_API_KEY=<your-local-app-key> `
   --dart-define=MOKGOSI_DEMO_MODE=true
 ```
 

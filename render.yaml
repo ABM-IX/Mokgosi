@@ -1,3 +1,5 @@
+# Secrets never get a `value:` here. Keys marked `sync: false` are set in the Render dashboard.
+# scripts/check_no_secrets.py (part of the backend test suite) fails if a secret is written inline.
 services:
   - type: web
     name: mokgosi-backend
@@ -11,19 +13,23 @@ services:
       - key: PYTHON_VERSION
         value: 3.11.3
       - key: SUPABASE_URL
-        value: https://svkqdjstcghtdjgmqzpd.supabase.co
+        sync: false
       - key: SUPABASE_KEY
         sync: false
       - key: ED25519_PRIVATE_KEY_SEED
-        value: c44d881fbbe812560c54e069c249b0c37c75ef994109b5bee52ba571f64983de
+        sync: false
+      - key: ED25519_PUBLIC_KEYRING
+        sync: false
       - key: DEVICE_API_KEYS
-        value: mokgosi-device-key-live-2026
+        sync: false
       - key: DEMO_MODE
         value: "false"
       - key: NOTIFIER_PROVIDER
         value: "console"
       - key: RATE_LIMIT_PER_MINUTE
         value: "60"
+      - key: RATE_LIMIT_PER_IP_PER_MINUTE
+        value: "120"
       - key: CORS_ORIGINS
         value: "http://localhost:5173,https://mokgosi-dashboard.onrender.com"
       - key: ESCALATION_SECONDS
@@ -39,9 +45,9 @@ services:
     autoDeploy: false
     envVars:
       - key: VITE_SUPABASE_URL
-        value: https://svkqdjstcghtdjgmqzpd.supabase.co
+        sync: false
       - key: VITE_SUPABASE_ANON_KEY
-        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN2a3FkanN0Y2dodGRqZ21xenBkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI5NDk0NjcsImV4cCI6MjEwODUyNTQ2N30.kY1PJUrNoOvYi_pU0C2zdWO2-G2PUyiynOu1nnSeseM
+        sync: false
       - key: VITE_API_URL
         value: https://mokgosi-backend.onrender.com
       - key: VITE_DEMO_MODE

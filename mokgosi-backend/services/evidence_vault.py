@@ -1,4 +1,4 @@
-"""Stable Ed25519 signing and verification for evidence manifests."""
+"""Stable Ed25519 signing and verification for evidence manifests, with a public keyring for rotation."""
 
 import hashlib
 import json
@@ -9,6 +9,11 @@ from typing import Any
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+
+# Unsigned top-level manifest columns that must match the signed payload. Timestamps are excluded
+# because Postgres re-formats timestamptz values on the way back out.
+_MIRRORED_FIELDS = ("public_key_id", "media_sha256", "media_type", "location_provenance", "incident_id",
+                    "media_storage_path")
 
 
 def load_private_key(seed_hex: str | None = None) -> Ed25519PrivateKey:
@@ -31,6 +36,40 @@ def public_key_hex(private_key: Ed25519PrivateKey) -> str:
         encoding=serialization.Encoding.Raw,
         format=serialization.PublicFormat.Raw,
     ).hex()
+
+
+def key_id_for(public_hex: str) -> str:
+    return f"mokgosi-ed25519-{public_hex[:8]}"
+
+
+def parse_keyring(raw: str | None) -> dict[str, dict[str, str]]:
+    """Parse ED25519_PUBLIC_KEYRING: comma-separated `<public_key_hex>[:retired|compromised]` entries.
+
+    Retired keys still verify evidence they signed before rotation. Compromised keys (private seed
+    exposed) are kept only so verification can say *why* it refuses them.
+    """
+    keyring: dict[str, dict[str, str]] = {}
+    for entry in (raw or "").split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        public_hex, _, status = entry.partition(":")
+        public_hex, status = public_hex.strip().lower(), (status.strip().lower() or "retired")
+        if status not in ("retired", "compromised"):
+            raise ValueError(f"ED25519_PUBLIC_KEYRING status must be 'retired' or 'compromised', got {status!r}")
+        try:
+            Ed25519PublicKey.from_public_bytes(bytes.fromhex(public_hex))
+        except ValueError as exc:
+            raise ValueError("ED25519_PUBLIC_KEYRING entries must be 64-hex Ed25519 public keys") from exc
+        keyring[key_id_for(public_hex)] = {"public_key": public_hex, "status": status}
+    return keyring
+
+
+def build_keyring(active_public_hex: str, raw_keyring: str | None = None) -> dict[str, dict[str, str]]:
+    """Archived keys from the env plus the active signing key, which always wins on an ID clash."""
+    keyring = parse_keyring(raw_keyring)
+    keyring[key_id_for(active_public_hex)] = {"public_key": active_public_hex, "status": "active"}
+    return keyring
 
 
 def canonical_payload(payload: dict[str, Any]) -> bytes:
@@ -58,7 +97,7 @@ def sign_manifest(
         "server_receipt_utc": now,
         "location_provenance": provenance,
         "media_sha256": digest,
-        "public_key_id": f"mokgosi-ed25519-{public_hex[:8]}",
+        "public_key_id": key_id_for(public_hex),
     }
     if media_storage_path:
         payload["media_storage_path"] = media_storage_path
@@ -91,3 +130,28 @@ def verify_manifest(manifest: dict[str, Any], public_hex: str | None = None) -> 
         return True
     except (InvalidSignature, KeyError, TypeError, ValueError):
         return False
+
+
+def verify_with_keyring(manifest: Any, keyring: dict[str, dict[str, str]]) -> dict[str, Any]:
+    """Pick the public key by the *signed* public_key_id, then verify.
+
+    A caller-supplied `public_key` is ignored, so nobody can self-sign a manifest and have it accepted.
+    """
+    payload = manifest.get("manifest_payload") if isinstance(manifest, dict) else None
+    if not isinstance(payload, dict):
+        return {"valid": False, "reason": "MALFORMED_MANIFEST", "public_key_id": None, "key_status": None}
+    key_id = payload.get("public_key_id")
+    entry = keyring.get(key_id) if isinstance(key_id, str) else None
+    result: dict[str, Any] = {"valid": False, "public_key_id": key_id, "key_status": entry["status"] if entry else None}
+    if entry is None:
+        return {**result, "reason": "UNKNOWN_KEY_ID"}
+    for field in _MIRRORED_FIELDS:
+        outer, inner = manifest.get(field), payload.get(field)
+        if outer is not None and inner is not None and str(outer) != str(inner):
+            return {**result, "reason": f"FIELD_MISMATCH:{field}"}
+    if not verify_manifest(manifest, entry["public_key"]):
+        return {**result, "reason": "INVALID_SIGNATURE"}
+    if entry["status"] == "compromised":
+        # The signature matches, but the private seed is public, so it proves nothing.
+        return {**result, "reason": "KEY_COMPROMISED", "signature_matches": True}
+    return {**result, "valid": True, "reason": None}

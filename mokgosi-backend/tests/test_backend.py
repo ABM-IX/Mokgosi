@@ -19,6 +19,7 @@ class Query:
     def select(self, *_): self.op = "select"; return self
     def insert(self, value): self.op, self.value = "insert", value; return self
     def update(self, value): self.op, self.value = "update", value; return self
+    def delete(self): self.op = "delete"; return self
     def eq(self, key, value): self.filters.append(("eq", key, value)); return self
     def gte(self, key, value): self.filters.append(("gte", key, value)); return self
     def in_(self, key, values): self.filters.append(("in", key, values)); return self
@@ -58,6 +59,10 @@ class Query:
             key, desc = self.order_by
             matched = sorted(matched, key=lambda row: row.get(key) or "", reverse=desc)
         if self.max_rows is not None: matched = matched[:self.max_rows]
+        if self.op == "delete":
+            doomed = {id(row) for row in matched}
+            self.client.rows[self.table] = [row for row in rows if id(row) not in doomed]
+            return SimpleNamespace(data=deepcopy(matched))
         if self.op == "update":
             for row in matched: row.update(deepcopy(self.value))
         return SimpleNamespace(data=deepcopy(matched))
@@ -168,7 +173,9 @@ def test_repeat_within_60_seconds_coalesces_and_only_raises_priority(client):
     test_client, fake = client
     first_body = trigger_body(trigger_type="MISSED_CHECKIN")
     first = test_client.post("/api/v1/incidents/trigger", json=first_body, headers=device_headers())
-    assert main._coalesce_recent(fake, main.IncidentTriggerPayload(**first_body)) is not None
+    # Without a device token the stored identity is the unverified label.
+    stored = main.IncidentTriggerPayload(**{**first_body, "user_id": "unverified:demo-survivor"})
+    assert main._coalesce_recent(fake, stored) is not None
     second = test_client.post("/api/v1/incidents/trigger", json=trigger_body(trigger_type="EXPLICIT_SOS"), headers=device_headers())
     assert first.status_code == second.status_code == 200
     assert second.json()["persistence_state"] == "PERSISTED"
@@ -230,10 +237,10 @@ def test_illegal_lifecycle_and_missing_auth_are_rejected(client):
     assert invalid.status_code == 401
 
 
-def test_rate_limit_is_enforced_per_ip_and_device(client, monkeypatch):
+def test_rate_limit_is_enforced_per_ip_for_unregistered_callers(client, monkeypatch):
     test_client, _ = client
     main._rate_windows.clear()
-    monkeypatch.setattr(main, "RATE_LIMIT", 1)
+    monkeypatch.setattr(main, "RATE_LIMIT_PER_IP", 1)
     first = test_client.post("/api/v1/incidents/trigger", json=trigger_body(), headers=device_headers())
     second = test_client.post("/api/v1/incidents/trigger", json=trigger_body(), headers=device_headers())
     assert first.status_code == 200

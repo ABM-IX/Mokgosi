@@ -1,4 +1,5 @@
-# Never commit credentials or local configuration.
+# Never commit credentials or local configuration. render.yaml holds `sync: false` placeholders only;
+# scripts/check_no_secrets.py (run by the backend tests) fails on seeds, JWTs and inline secrets.
 .env
 .env.*
 !.env.example
@@ -7,6 +8,9 @@
 !**/.env.example
 *.pem
 *.key
+*.seed
+secrets/
+render.local.yaml
 
 # Generated builds and caches.
 .venv/

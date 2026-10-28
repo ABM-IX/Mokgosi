@@ -1,5 +1,23 @@
 # MOKGOSI Build Progress
 
+## Pre-deploy fixes (2026-10-29, branch `predeploy-fixes`)
+Baseline before changes: backend pytest 42/42, `flutter test` 27/27, `npm test` 9/9, `npm run build` clean,
+**`flutter analyze` 3 issues** (1 warning, 2 infos in `login_screen.dart`), not 0 as stated below.
+
+| Item | Status |
+| :--- | :--- |
+| 1. Secrets hygiene | **Done.** `render.yaml` secrets use `sync: false`. `scripts/check_no_secrets.py` runs in pytest. Keyring rotation is in place (`docs/KEY_ROTATION.md`). Per-device token identity and per-device/per-IP rate limits are added. `DELETE /api/v1/me/data` really deletes. Backend 50/50. |
+| 2. Covert disguise | **Not started.** Two launcher icons, "Mokgosi" label, permissions requested at first launch, fixed "Mokgosi Escort Active" notification. No Quick Settings tile or widget exists. |
+| 3. Remove fake login | **Not started.** Mobile still shows the fake login and does not use the device token. Its contacts/evidence/consents calls now get 401 from this backend until item 3 lands. |
+| 4. Honest live mode | **Not started.** The dashboard bundle still contains the demo password. The safe-network panel is hard-coded "ACKNOWLEDGED". There is no `create_responder.py`. |
+| 5. Real DB proof | **Not started.** It needs a Postgres connection string, which was not provided. |
+
+Live findings on 2026-10-29 (read-only probes): the Render backend reports `demo_mode: true`, and it **accepts the public demo token
+`mokgosi-demo-responder-secret-key-2026` as a responder credential** (HTTP 200; a garbage token gets 401). Fix in the Render dashboard:
+`DEMO_MODE=false` and an empty `DEMO_RESPONDER_TOKEN`.
+
+The status sections below predate this audit and overstate several things (analyzer issues, covert disguise, encrypted storage, server purge).
+
 ## Phase Status Summary
 - **Phase 0 (It builds):** DONE
 - **Phase 1 (Backend invariant & security):** DONE (24/24 pytest tests passing)

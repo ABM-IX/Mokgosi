@@ -29,8 +29,12 @@ def g2_client(monkeypatch):
     return TestClient(main.app), fake
 
 
-def device_headers(key="g2-device-key-alice", user_id="alice-user"):
-    return {"X-Device-Key": key, "X-User-Id": user_id}
+def register(client, key="g2-device-key-alice"):
+    """Anonymous registration; returns the server-issued user_id and headers carrying the device token."""
+    res = client.post("/api/v1/devices/register", json={}, headers={"X-Device-Key": key})
+    assert res.status_code == 200, res.text
+    body = res.json()
+    return body["user_id"], {"X-Device-Key": key, "X-Device-Token": body["device_token"]}
 
 
 def responder_headers():
@@ -40,7 +44,7 @@ def responder_headers():
 # 1. Contact CRUD + Max 5 Limit
 def test_contact_crud_and_max_5_limit(g2_client):
     client, fake = g2_client
-    headers = device_headers("g2-device-key-alice", "alice-user")
+    alice, headers = register(client)
 
     # Create 5 contacts
     created_ids = []
@@ -48,7 +52,7 @@ def test_contact_crud_and_max_5_limit(g2_client):
         res = client.post(
             "/api/v1/network/contacts",
             json={
-                "user_id": "alice-user",
+                "user_id": alice,
                 "name": f"Contact {i}",
                 "phone_e164": f"+2677100000{i}",
                 "role": "FAMILY" if i == 1 else "TRUSTED_PERSON",
@@ -65,7 +69,7 @@ def test_contact_crud_and_max_5_limit(g2_client):
     rejected = client.post(
         "/api/v1/network/contacts",
         json={
-            "user_id": "alice-user",
+            "user_id": alice,
             "name": "Contact 6",
             "phone_e164": "+26771000006",
             "role": "NEIGHBOUR",
@@ -77,7 +81,7 @@ def test_contact_crud_and_max_5_limit(g2_client):
     assert "at most 5" in rejected.json()["detail"].lower()
 
     # List contacts
-    list_res = client.get("/api/v1/network/contacts?user_id=alice-user", headers=headers)
+    list_res = client.get("/api/v1/network/contacts", headers=headers)
     assert list_res.status_code == 200
     contacts = list_res.json()["contacts"]
     assert len(contacts) == 5
@@ -108,23 +112,24 @@ def test_escalation_chain_dispatches_contact_2_when_contact_1_unacked(g2_client,
 
     monkeypatch.setitem(main.dispatch.__globals__["PROVIDERS"], "console", mock_deliver)
 
-    # Seed 2 contacts for alice
+    # Seed 2 contacts for alice (the safe network only runs for a registered device token)
+    alice, headers = register(client)
     fake.rows["trusted_contacts"] = [
-        {"id": "c1-uuid", "user_id": "alice-user", "name": "C1", "phone_e164": "+26771111111", "priority": 1, "is_active": True},
-        {"id": "c2-uuid", "user_id": "alice-user", "name": "C2", "phone_e164": "+26772222222", "priority": 2, "is_active": True},
+        {"id": "c1-uuid", "user_id": alice, "name": "C1", "phone_e164": "+26771111111", "priority": 1, "is_active": True},
+        {"id": "c2-uuid", "user_id": alice, "name": "C2", "phone_e164": "+26772222222", "priority": 2, "is_active": True},
     ]
 
     # Trigger incident for alice with GBV category
     res = client.post(
         "/api/v1/incidents/trigger",
         json={
-            "user_id": "alice-user",
+            "user_id": "ignored-label",
             "trigger_type": "COVERT_SOS",
             "category": "GBV_DOMESTIC",
             "lat": -24.65,
             "lng": 25.90,
         },
-        headers=device_headers("g2-device-key-alice", "alice-user"),
+        headers=headers,
     )
     assert res.status_code == 200
     assert res.json()["incident"]["priority"] == "P1_CRITICAL"
@@ -213,13 +218,13 @@ def test_ack_link_rejects_expired_and_tampered_tokens(g2_client):
 # 4. Evidence entry round-trip, signed manifest, case bundle & tamper test
 def test_evidence_entry_roundtrip_bundle_and_tamper_detection(g2_client):
     client, fake = g2_client
-    headers = device_headers("g2-device-key-alice", "alice-user")
+    alice, headers = register(client)
 
     # Store a note entry
     note_res = client.post(
         "/api/v1/evidence-entries",
         data={
-            "user_id": "alice-user",
+            "user_id": alice,
             "kind": "NOTE",
             "notes": "Incident occurred at front gate.",
             "lat": "-24.654",
@@ -237,7 +242,7 @@ def test_evidence_entry_roundtrip_bundle_and_tamper_detection(g2_client):
     # Store an audio entry
     audio_res = client.post(
         "/api/v1/evidence-entries",
-        data={"user_id": "alice-user", "kind": "AUDIO"},
+        data={"user_id": alice, "kind": "AUDIO"},
         files={"media_file": ("statement.wav", b"RIFF-survivor-voice-recording", "audio/wav")},
         headers=headers,
     )
@@ -248,7 +253,7 @@ def test_evidence_entry_roundtrip_bundle_and_tamper_detection(g2_client):
     assert verify_manifest(audio_manifest, main.PUBLIC_KEY_HEX)
 
     # List entries for alice
-    list_res = client.get("/api/v1/evidence-entries?user_id=alice-user", headers=headers)
+    list_res = client.get(f"/api/v1/evidence-entries?user_id={alice}", headers=headers)
     assert list_res.status_code == 200
     assert len(list_res.json()["entries"]) == 2
 
@@ -256,7 +261,7 @@ def test_evidence_entry_roundtrip_bundle_and_tamper_detection(g2_client):
     share_res = client.post(
         "/api/v1/evidence-entries/share",
         json={
-            "user_id": "alice-user",
+            "user_id": alice,
             "entry_ids": [entry["id"], audio_entry["id"]],
             "recipient_type": "POLICE",
             "notes": "Case documentation for GBV desk intake.",
@@ -307,17 +312,20 @@ def test_user_cannot_read_another_users_evidence_entries(g2_client):
     client, fake = g2_client
 
     # Alice creates an entry
+    alice, alice_headers = register(client)
     client.post(
         "/api/v1/evidence-entries",
-        data={"user_id": "alice-user", "kind": "NOTE", "notes": "Alice's private evidence."},
-        headers=device_headers("g2-device-key-alice", "alice-user"),
+        data={"kind": "NOTE", "notes": "Alice's private evidence."},
+        headers=alice_headers,
     )
 
     # Bob attempts to read Alice's entries -> 403 Forbidden!
-    bob_headers = device_headers("g2-device-key-bob", "bob-user")
-    attempt = client.get("/api/v1/evidence-entries?user_id=alice-user", headers=bob_headers)
+    _bob, bob_headers = register(client, "g2-device-key-bob")
+    attempt = client.get(f"/api/v1/evidence-entries?user_id={alice}", headers=bob_headers)
     assert attempt.status_code == 403
-    assert "cannot read" in attempt.json()["detail"].lower()
+    assert "another survivor" in attempt.json()["detail"].lower()
+    # Without a user_id, Bob only ever sees his own (empty) vault.
+    assert client.get("/api/v1/evidence-entries", headers=bob_headers).json()["entries"] == []
 
 
 # 6. Referrals endpoint never returns unverified entries to survivors

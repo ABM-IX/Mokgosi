@@ -1,10 +1,13 @@
 """Mokgosi incident API. The trusted-person and response-network routes fail independently."""
 
+import hashlib
 import hmac
 import logging
 import os
+import secrets
 import threading
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any, Literal, Optional
@@ -29,7 +32,14 @@ from services.evidence_service import (
     verify_bundle_token,
     verify_bundle_zip,
 )
-from services.evidence_vault import load_private_key, public_key_hex, sign_manifest, verify_manifest
+from services.evidence_vault import (
+    build_keyring,
+    key_id_for,
+    load_private_key,
+    public_key_hex,
+    sign_manifest,
+    verify_with_keyring,
+)
 from services.priority_engine import assign_initial_priority
 from services.safe_network import (
     format_neutral_sms,
@@ -43,25 +53,31 @@ logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("mokgosi.api")
 
 # Refuse to run with ephemeral/rotating signing keys. This key remains process stable.
+# Retired public keys (ED25519_PUBLIC_KEYRING) keep pre-rotation evidence verifiable.
 try:
     PRIVATE_KEY = load_private_key()
+    PUBLIC_KEY_HEX = public_key_hex(PRIVATE_KEY)
+    KEYRING = build_keyring(PUBLIC_KEY_HEX, os.getenv("ED25519_PUBLIC_KEYRING"))
 except ValueError as exc:
     raise RuntimeError(str(exc)) from exc
-PUBLIC_KEY_HEX = public_key_hex(PRIVATE_KEY)
-KEY_ID = f"mokgosi-ed25519-{PUBLIC_KEY_HEX[:8]}"
+KEY_ID = key_id_for(PUBLIC_KEY_HEX)
 
 app = FastAPI(title="MOKGOSI Incident & Evidence Engine", version="2.1")
 cors_origins = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",") if origin.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-Device-Key"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Device-Key", "X-Device-Token"],
 )
 
 _rate_lock = threading.Lock()
 _rate_windows: dict[str, list[float]] = {}
+# Per registered device / responder. Unregistered callers only get the per-IP bucket, and nobody
+# shares a bucket with every other install (the APK key is the same on every phone).
 RATE_LIMIT = int(os.getenv("RATE_LIMIT_PER_MINUTE", "60"))
+RATE_LIMIT_PER_IP = int(os.getenv("RATE_LIMIT_PER_IP_PER_MINUTE", "120"))
+REGISTRATIONS_PER_IP_PER_HOUR = int(os.getenv("REGISTRATIONS_PER_IP_PER_HOUR", "20"))
 OPEN_STATUSES = ["CREATED", "ACKNOWLEDGED", "ASSIGNED", "DISPATCHED"]
 PRIORITY_RANK = {"P3_VERIFY": 1, "P2_HIGH": 2, "P1_CRITICAL": 3}
 NEXT_STATUS = {"CREATED": "ACKNOWLEDGED", "ACKNOWLEDGED": "ASSIGNED", "ASSIGNED": "DISPATCHED", "DISPATCHED": "RESOLVED"}
@@ -76,26 +92,94 @@ def get_db() -> Client:
     return create_client(url, key)
 
 
-def _rate_limit(request: Request, identity: str) -> None:
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _consume(key: str, limit: int, window_seconds: float = 60) -> None:
+    """In-memory sliding window; per process, so limits reset on restart."""
     now = time.monotonic()
-    ip = request.client.host if request.client else "unknown"
-    for key in (f"ip:{ip}", identity):
-        with _rate_lock:
-            recent = [stamp for stamp in _rate_windows.get(key, []) if now - stamp < 60]
-            if len(recent) >= RATE_LIMIT:
-                raise HTTPException(status_code=429, detail="Rate limit exceeded")
-            recent.append(now)
-            _rate_windows[key] = recent
+    with _rate_lock:
+        recent = [stamp for stamp in _rate_windows.get(key, []) if now - stamp < window_seconds]
+        if len(recent) >= limit:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        recent.append(now)
+        _rate_windows[key] = recent
 
 
-def require_device(request: Request, x_device_key: Optional[str] = Header(default=None)) -> str:
-    """Require one configured device key and rate-limit by both device and IP."""
+def _rate_limit(request: Request, identity: str) -> None:
+    ip_key = f"ip:{_client_ip(request)}"
+    _consume(ip_key, RATE_LIMIT_PER_IP)
+    if identity != ip_key:
+        _consume(identity, RATE_LIMIT)
+
+
+@dataclass(frozen=True)
+class DeviceContext:
+    """Who is calling. `user_id` is only set when a registered per-device token was presented."""
+
+    rate_identity: str
+    device_id: str | None = None
+    user_id: str | None = None
+    lookup_failed: bool = False
+
+    @property
+    def registered(self) -> bool:
+        return self.user_id is not None
+
+
+def _hash_device_token(token: str) -> str:
+    # Tokens are 256-bit random values, so a fast hash is enough; only the hash is stored.
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _check_app_key(x_device_key: Optional[str]) -> None:
+    """X-Device-Key ships inside every APK, so it only says "probably our app", never who is calling."""
     configured = [value.strip() for value in os.getenv("DEVICE_API_KEYS", os.getenv("DEVICE_API_KEY", "")).split(",") if value.strip()]
     if not x_device_key or not configured or not any(hmac.compare_digest(x_device_key, value) for value in configured):
         raise HTTPException(status_code=401, detail="Valid X-Device-Key required")
-    identity = f"device:{x_device_key}"
-    _rate_limit(request, identity)
-    return identity
+
+
+def require_device(
+    request: Request,
+    x_device_key: Optional[str] = Header(default=None),
+    x_device_token: Optional[str] = Header(default=None),
+) -> DeviceContext:
+    """App gate plus optional per-device identity. Token problems never block a caller here, so an
+    SOS still goes through; routes that touch private data use require_registered_device instead."""
+    _check_app_key(x_device_key)
+    device: DeviceContext | None = None
+    lookup_failed = False
+    if x_device_token:
+        try:
+            rows = _result_data(
+                get_db().table("devices").select("id,user_id,active")
+                .eq("device_key_hash", _hash_device_token(x_device_token)).limit(1)
+            )
+            if rows and rows[0].get("active", True):
+                device = DeviceContext(f"device:{rows[0]['id']}", str(rows[0]["id"]), str(rows[0]["user_id"]))
+        except Exception:
+            lookup_failed = True
+            logger.warning("Device token lookup unavailable; continuing as an unregistered caller")
+    if device is None:
+        device = DeviceContext(f"ip:{_client_ip(request)}", lookup_failed=lookup_failed)
+    _rate_limit(request, device.rate_identity)
+    return device
+
+
+def require_registered_device(device: DeviceContext = Depends(require_device)) -> DeviceContext:
+    if device.lookup_failed:
+        raise HTTPException(status_code=503, detail="Device verification unavailable")
+    if not device.registered:
+        raise HTTPException(status_code=401, detail="Registered device token required (X-Device-Token)")
+    return device
+
+
+def _require_owner(device: DeviceContext, claimed_user_id: str | None) -> str:
+    """Survivor data is keyed by the token's user; a different user_id in the request is refused."""
+    if claimed_user_id and claimed_user_id != device.user_id:
+        raise HTTPException(status_code=403, detail="Forbidden: this device cannot access another survivor's data")
+    return str(device.user_id)
 
 
 def _user_id_from_response(response: Any) -> str | None:
@@ -149,13 +233,14 @@ def require_responder(request: Request, authorization: Optional[str] = Header(de
 def require_device_or_responder(
     request: Request,
     x_device_key: Optional[str] = Header(default=None),
+    x_device_token: Optional[str] = Header(default=None),
     authorization: Optional[str] = Header(default=None),
 ) -> str:
     """Allow either an authenticated responder or a configured device key (for Route 3 audio uploads)."""
     if authorization and authorization.lower().startswith("bearer "):
         return require_responder(request, authorization)
     if x_device_key:
-        return require_device(request, x_device_key)
+        return require_device(request, x_device_key, x_device_token).rate_identity
     raise HTTPException(status_code=401, detail="Valid X-Device-Key or responder Bearer token required")
 
 
@@ -177,7 +262,7 @@ class IncidentTriggerPayload(BaseModel):
 
 
 class TrustedContactCreatePayload(BaseModel):
-    user_id: str = Field(min_length=1, max_length=120)
+    user_id: Optional[str] = Field(default=None, max_length=120)  # optional: the device token decides
     name: str = Field(min_length=1, max_length=120)
     phone_e164: str
     role: Literal["TRUSTED_PERSON", "FAMILY", "NEIGHBOUR", "SUPPORT_ORG"] = "TRUSTED_PERSON"
@@ -207,7 +292,7 @@ class TrustedContactUpdatePayload(BaseModel):
 
 
 class EvidenceSharePayload(BaseModel):
-    user_id: str = Field(min_length=1, max_length=120)
+    user_id: Optional[str] = Field(default=None, max_length=120)
     entry_ids: list[str] = Field(min_length=1)
     recipient_type: Literal["POLICE", "LEGAL_AID", "COUNSELLOR", "OTHER"]
     notes: Optional[str] = None
@@ -219,7 +304,7 @@ class ReferralCreatePayload(BaseModel):
 
 
 class ConsentsUpdatePayload(BaseModel):
-    user_id: str = Field(min_length=1, max_length=120)
+    user_id: Optional[str] = Field(default=None, max_length=120)
     location: Optional[bool] = True
     audio: Optional[bool] = False
     responder_contact: Optional[bool] = False
@@ -265,9 +350,13 @@ def _notify_trusted_person(
     payload: IncidentTriggerPayload,
     priority: str,
     client: Client | None,
+    verified_identity: bool = False,
 ) -> None:
-    """Run notifier without depending on the response database path. Prioritizes safe network escalation chain."""
-    if client:
+    """Run notifier without depending on the response database path. Prioritizes safe network escalation chain.
+
+    Only a registered device token unlocks the server-stored safe network, so a caller who merely
+    knows someone's user_id cannot make the server text that person's contacts."""
+    if client and verified_identity:
         try:
             base_url = os.getenv("API_BASE_URL", "http://localhost:8000")
             chain_results = run_escalation_chain(
@@ -308,8 +397,8 @@ def _notify_trusted_person(
 
 
 def _queue_notify(background_tasks: BackgroundTasks, incident_id: str, payload: IncidentTriggerPayload,
-                  priority: str, client: Client | None) -> None:
-    background_tasks.add_task(_notify_trusted_person, incident_id, payload, priority, client)
+                  priority: str, client: Client | None, verified_identity: bool = False) -> None:
+    background_tasks.add_task(_notify_trusted_person, incident_id, payload, priority, client, verified_identity)
 
 
 def _lookup_existing(client: Client, client_event_id: UUID | None) -> dict[str, Any] | None:
@@ -377,13 +466,18 @@ def health() -> dict[str, Any]:
 
 
 @app.get("/api/v1/evidence/public-key")
-def evidence_public_key() -> dict[str, str]:
-    return {"public_key_id": KEY_ID, "public_key": PUBLIC_KEY_HEX, "algorithm": "Ed25519"}
+def evidence_public_key() -> dict[str, Any]:
+    return {
+        "public_key_id": KEY_ID,
+        "public_key": PUBLIC_KEY_HEX,
+        "algorithm": "Ed25519",
+        "keyring": [{"public_key_id": key_id, **entry} for key_id, entry in sorted(KEYRING.items())],
+    }
 
 
 @app.post("/api/v1/evidence/verify")
-def evidence_verify(manifest: dict[str, Any]) -> dict[str, bool]:
-    return {"valid": verify_manifest(manifest, PUBLIC_KEY_HEX)}
+def evidence_verify(manifest: dict[str, Any]) -> dict[str, Any]:
+    return verify_with_keyring(manifest, KEYRING)
 
 
 @app.post("/api/v1/incidents/trigger")
@@ -391,8 +485,14 @@ async def trigger_incident(
     payload: IncidentTriggerPayload,
     background_tasks: BackgroundTasks,
     request: Request,
-    _device: str = Depends(require_device),
+    device: DeviceContext = Depends(require_device),
 ) -> dict[str, Any]:
+    # A registered token decides who this is; without one the body's user_id is only a label.
+    if device.registered:
+        payload = payload.model_copy(update={"user_id": device.user_id})
+    else:
+        payload = payload.model_copy(update={"user_id": f"unverified:{payload.user_id.removeprefix('unverified:')}"})
+    verified = device.registered
     priority = assign_initial_priority(payload.trigger_type, payload.impact_g_force)
     client: Client | None = None
     try:
@@ -431,7 +531,7 @@ async def trigger_incident(
                     repeated = changed[0]
             except Exception:
                 logger.exception("Repeat-trigger priority upgrade failed; existing incident remains active")
-            _queue_notify(background_tasks, incident_id, payload, raised_priority, client)
+            _queue_notify(background_tasks, incident_id, payload, raised_priority, client, verified)
         _audit(client, incident_id, "MOKGOSI_INGEST_ENGINE", "REPEAT_TRIGGER",
                {"trigger_type": payload.trigger_type, "client_event_id": str(payload.client_event_id) if payload.client_event_id else None,
                 "priority_before": old_priority, "priority_after": raised_priority})
@@ -477,11 +577,11 @@ async def trigger_incident(
 
     incident_id = incident["id"]
     # Queue route 1 before running optional cameras and audit work for route 2.
-    _queue_notify(background_tasks, incident_id, payload, priority, client)
+    _queue_notify(background_tasks, incident_id, payload, priority, client, verified)
     cameras = _nearby_cameras(client, payload)
     _audit(client, incident_id, "MOKGOSI_INGEST_ENGINE", "INCIDENT_CREATED", {
         "initial_priority": priority, "trigger_type": payload.trigger_type, "matched_cameras": len(cameras),
-        "client_ip": request.client.host if request.client else None,
+        "client_ip": request.client.host if request.client else None, "device_verified": verified,
     })
     return {"status": "MOKGOSI_ALERT_ACTIVE", "incident_persisted": True, "persistence_state": "PERSISTED",
             "notification_state": "QUEUED" if payload.trusted_contact_phone else "NOT_CONFIGURED",
@@ -489,7 +589,7 @@ async def trigger_incident(
 
 
 @app.post("/api/v1/incidents/{incident_id}/location")
-async def append_location(incident_id: UUID, payload: LocationPayload, _device: str = Depends(require_device)):
+async def append_location(incident_id: UUID, payload: LocationPayload, _device: DeviceContext = Depends(require_device)):
     try:
         client = get_db()
         incident = _result_data(client.table("incidents").select("id").eq("id", str(incident_id)).limit(1))
@@ -729,26 +829,76 @@ async def capture_cctv_snapshot(
     return {"manifest": persisted, "camera": matched, "demo_fallback": demo_fallback}
 
 
-@app.delete("/api/v1/users/{user_id}/data")
-async def delete_user_personal_data(user_id: str, _device: str = Depends(require_device)):
-    """Delete user's mutable personal contact/location records while retaining append-only forensic manifests."""
+class DeviceRegisterPayload(BaseModel):
+    preferred_language: Literal["en", "tn"] = "en"
+
+
+@app.post("/api/v1/devices/register")
+async def register_device(
+    payload: DeviceRegisterPayload,
+    request: Request,
+    x_device_key: Optional[str] = Header(default=None),
+):
+    """Create an anonymous identity: a random user_id plus a per-device token. No name, email, phone or
+    national ID is collected. The token is returned once; only its SHA-256 is stored."""
+    _check_app_key(x_device_key)
+    _consume(f"register:{_client_ip(request)}", REGISTRATIONS_PER_IP_PER_HOUR, window_seconds=3600)
     try:
         client = get_db()
-        _audit(
-            client,
-            None,
-            f"user:{user_id}",
-            "USER_DATA_DELETION_REQUESTED",
-            {"note": "Trusted contacts cleared; append-only forensic logs retained per evidence integrity rules."},
-        )
-        return {
-            "status": "PROCESSED",
-            "user_id": user_id,
-            "deleted_scopes": ["trusted_contacts", "active_escort_preferences"],
-            "retained_scopes": ["evidence_manifests", "evidence_audit_logs"],
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Registration unavailable; the app keeps working unregistered") from exc
+    user_id, token = str(uuid4()), secrets.token_urlsafe(32)
+    try:
+        client.table("survivor_profiles").insert({"user_id": user_id, "preferred_language": payload.preferred_language}).execute()
+        rows = _result_data(client.table("devices").insert({
+            "user_id": user_id, "device_key_hash": _hash_device_token(token), "active": True,
+        }))
+    except Exception as exc:
+        logger.exception("Device registration insert failed")
+        raise HTTPException(status_code=503, detail="Registration unavailable; the app keeps working unregistered") from exc
+    device_id = str(rows[0]["id"]) if rows else None
+    _audit(client, None, f"device:{device_id}", "DEVICE_REGISTERED", {"user_id": user_id})
+    return {"user_id": user_id, "device_id": device_id, "device_token": token}
+
+
+@app.delete("/api/v1/me/data")
+async def delete_my_data(device: DeviceContext = Depends(require_registered_device)):
+    """Delete this survivor's personal records for real. Append-only manifests and audit logs stay (they
+    hold hashes and actions, no content), as do incident records, which carry only the random user_id."""
+    user_id = str(device.user_id)
+    try:
+        client = get_db()
+        bucket = os.getenv("EVIDENCE_STORAGE_BUCKET", "evidence-media")
+        entries = _result_data(client.table("evidence_entries").select("id,storage_path").eq("user_id", user_id))
+        paths = [row["storage_path"] for row in entries if row.get("storage_path")]
+        storage_removed = True
+        if paths:
+            try:
+                client.storage.from_(bucket).remove(paths)
+            except Exception:
+                storage_removed = False
+                logger.warning("Evidence media removal failed for a data-deletion request")
+        deleted = {
+            "trusted_contacts": len(_result_data(client.table("trusted_contacts").delete().eq("user_id", user_id))),
+            "evidence_entries": len(_result_data(client.table("evidence_entries").delete().eq("user_id", user_id))),
+            "user_consents": len(_result_data(client.table("user_consents").delete().eq("user_id", user_id))),
+            "survivor_profiles": len(_result_data(client.table("survivor_profiles").delete().eq("user_id", user_id))),
+            # Last, so every token for this identity stops working.
+            "devices": len(_result_data(client.table("devices").delete().eq("user_id", user_id))),
         }
     except Exception as exc:
-        raise HTTPException(status_code=503, detail="Data deletion request could not be processed") from exc
+        logger.exception("Data deletion failed")
+        raise HTTPException(status_code=503, detail="Data deletion could not be completed; nothing was confirmed") from exc
+    _audit(client, None, f"user:{user_id}", "USER_DATA_DELETED", {
+        "deleted_counts": deleted, "evidence_media_objects": len(paths), "evidence_media_removed": storage_removed,
+    })
+    return {
+        "status": "DELETED" if storage_removed else "DELETED_EXCEPT_MEDIA",
+        "deleted": deleted,
+        "evidence_media_removed": storage_removed,
+        "retained": ["incidents (random user_id only)", "evidence_manifests (hashes, append-only)",
+                     "evidence_audit_logs (append-only)"],
+    }
 
 
 @app.patch("/api/v1/incidents/{incident_id}/lifecycle")
@@ -804,17 +954,27 @@ async def audit_incident_view(incident_id: UUID, payload: dict[str, str], actor_
 # Pillar B: Safe Network Contacts
 # =============================================================================
 
+def _owned_contact(client: Client, contact_id: UUID, device: DeviceContext) -> dict[str, Any]:
+    rows = _result_data(client.table("trusted_contacts").select("id,user_id").eq("id", str(contact_id)).limit(1))
+    if not rows or rows[0].get("user_id") != device.user_id:
+        # Same answer for "missing" and "someone else's", so contact IDs cannot be probed.
+        raise HTTPException(status_code=404, detail="Trusted contact not found")
+    return rows[0]
+
+
 @app.post("/api/v1/network/contacts")
-async def create_trusted_contact(payload: TrustedContactCreatePayload, _device: str = Depends(require_device)):
+async def create_trusted_contact(payload: TrustedContactCreatePayload,
+                                 device: DeviceContext = Depends(require_registered_device)):
     """Create a trusted contact in the user's safe network (max 5 active contacts per user)."""
+    user_id = _require_owner(device, payload.user_id)
     client = get_db()
     existing = _result_data(
-        client.table("trusted_contacts").select("id").eq("user_id", payload.user_id).eq("is_active", True)
+        client.table("trusted_contacts").select("id").eq("user_id", user_id).eq("is_active", True)
     )
     if len(existing) >= 5:
         raise HTTPException(status_code=400, detail="A user may have at most 5 active trusted contacts")
     row = {
-        "user_id": payload.user_id,
+        "user_id": user_id,
         "name": payload.name,
         "phone_e164": payload.phone_e164,
         "role": payload.role,
@@ -830,13 +990,15 @@ async def create_trusted_contact(payload: TrustedContactCreatePayload, _device: 
 
 
 @app.get("/api/v1/network/contacts")
-async def list_trusted_contacts(user_id: str, _device: str = Depends(require_device)):
-    """List safe network contacts for caller ordered by priority."""
+async def list_trusted_contacts(user_id: Optional[str] = None,
+                                device: DeviceContext = Depends(require_registered_device)):
+    """List the calling device's safe network contacts ordered by priority."""
+    owner = _require_owner(device, user_id)
     client = get_db()
     contacts = _result_data(
         client.table("trusted_contacts")
         .select("*")
-        .eq("user_id", user_id)
+        .eq("user_id", owner)
         .eq("is_active", True)
         .order("priority", desc=False)
     )
@@ -844,27 +1006,30 @@ async def list_trusted_contacts(user_id: str, _device: str = Depends(require_dev
 
 
 @app.patch("/api/v1/network/contacts/{contact_id}")
-async def update_trusted_contact(contact_id: UUID, payload: TrustedContactUpdatePayload, _device: str = Depends(require_device)):
-    """Update priority, role, or phone for a safe network contact."""
+async def update_trusted_contact(contact_id: UUID, payload: TrustedContactUpdatePayload,
+                                 device: DeviceContext = Depends(require_registered_device)):
+    """Update priority, role, or phone for one of the caller's own safe network contacts."""
     client = get_db()
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not updates:
         raise HTTPException(status_code=422, detail="No fields provided for update")
-    data = _result_data(client.table("trusted_contacts").update(updates).eq("id", str(contact_id)))
+    _owned_contact(client, contact_id, device)
+    data = _result_data(client.table("trusted_contacts").update(updates).eq("id", str(contact_id)).eq("user_id", device.user_id))
     if not data:
         raise HTTPException(status_code=404, detail="Trusted contact not found")
-    _audit(client, None, "SAFE_NETWORK", "CONTACT_UPDATED", {"contact_id": str(contact_id)})
+    _audit(client, None, f"user:{device.user_id}", "CONTACT_UPDATED", {"contact_id": str(contact_id)})
     return {"contact": data[0]}
 
 
 @app.delete("/api/v1/network/contacts/{contact_id}")
-async def delete_trusted_contact(contact_id: UUID, _device: str = Depends(require_device)):
-    """Soft-delete a trusted contact by marking is_active=False."""
+async def delete_trusted_contact(contact_id: UUID, device: DeviceContext = Depends(require_registered_device)):
+    """Soft-delete one of the caller's own trusted contacts by marking is_active=False."""
     client = get_db()
-    data = _result_data(client.table("trusted_contacts").update({"is_active": False}).eq("id", str(contact_id)))
+    _owned_contact(client, contact_id, device)
+    data = _result_data(client.table("trusted_contacts").update({"is_active": False}).eq("id", str(contact_id)).eq("user_id", device.user_id))
     if not data:
         raise HTTPException(status_code=404, detail="Trusted contact not found")
-    _audit(client, None, "SAFE_NETWORK", "CONTACT_REMOVED", {"contact_id": str(contact_id)})
+    _audit(client, None, f"user:{device.user_id}", "CONTACT_REMOVED", {"contact_id": str(contact_id)})
     return {"deleted": True, "contact_id": str(contact_id)}
 
 
@@ -981,35 +1146,19 @@ h2{color:#22c55e;margin-top:0;}p{color:#cbd5e1;line-height:1.6;}</style>
 # Pillar B: Survivor-Owned Evidence Vault & Case Bundles
 # =============================================================================
 
-def _check_evidence_authorization(requested_user_id: str, request: Request, x_device_key: Optional[str]) -> None:
-    header_user = request.headers.get("x-user-id")
-    if header_user and header_user != requested_user_id:
-        raise HTTPException(status_code=403, detail="Forbidden: You cannot read or manage another survivor's evidence entries")
-    try:
-        client = get_db()
-        dev_rows = _result_data(client.table("devices").select("user_id").eq("device_key_hash", x_device_key or "").limit(1))
-        if dev_rows and dev_rows[0].get("user_id") != requested_user_id:
-            raise HTTPException(status_code=403, detail="Forbidden: Device is not authorized for this survivor profile")
-    except HTTPException:
-        raise
-    except Exception:
-        pass
-
-
 @app.post("/api/v1/evidence-entries")
 async def store_evidence_entry(
-    user_id: str = Form(...),
     kind: Literal["AUDIO", "PHOTO", "NOTE"] = Form(...),
+    user_id: Optional[str] = Form(None),
     source_capture_utc: Optional[str] = Form(None),
     lat: Optional[float] = Form(None),
     lng: Optional[float] = Form(None),
     notes: Optional[str] = Form(None),
     media_file: Optional[UploadFile] = File(None),
-    request: Request = None,
-    x_device_key: str = Depends(require_device),
+    device: DeviceContext = Depends(require_registered_device),
 ):
     """Store survivor-owned media or note; sign cryptographic manifest with persistent Ed25519 key."""
-    _check_evidence_authorization(user_id, request, x_device_key)
+    user_id = _require_owner(device, user_id)
     client = get_db()
     now_utc = source_capture_utc or datetime.now(timezone.utc).isoformat()
 
@@ -1075,12 +1224,11 @@ async def store_evidence_entry(
 
 @app.get("/api/v1/evidence-entries")
 async def list_evidence_entries(
-    user_id: str = Query(...),
-    request: Request = None,
-    x_device_key: str = Depends(require_device),
+    user_id: Optional[str] = Query(None),
+    device: DeviceContext = Depends(require_registered_device),
 ):
     """List caller's active evidence entries (user cannot read another user's entries)."""
-    _check_evidence_authorization(user_id, request, x_device_key)
+    user_id = _require_owner(device, user_id)
     client = get_db()
     rows = _result_data(
         client.table("evidence_entries")
@@ -1096,16 +1244,14 @@ async def list_evidence_entries(
 async def delete_evidence_entry(
     entry_id: UUID,
     hard_delete: bool = Query(False),
-    request: Request = None,
-    x_device_key: str = Depends(require_device),
+    device: DeviceContext = Depends(require_registered_device),
 ):
     """Soft-delete (and optional hard-delete) an evidence entry; log action honestly without content."""
     client = get_db()
     rows = _result_data(client.table("evidence_entries").select("*").eq("id", str(entry_id)).limit(1))
-    if not rows:
+    if not rows or rows[0].get("user_id") != device.user_id:
         raise HTTPException(status_code=404, detail="Evidence entry not found")
     entry = rows[0]
-    _check_evidence_authorization(entry["user_id"], request, x_device_key)
 
     now_utc = datetime.now(timezone.utc).isoformat()
     client.table("evidence_entries").update({"deleted_at": now_utc}).eq("id", str(entry_id)).execute()
@@ -1129,11 +1275,11 @@ async def delete_evidence_entry(
 @app.post("/api/v1/evidence-entries/share")
 async def share_evidence_bundle(
     payload: EvidenceSharePayload,
-    request: Request = None,
-    x_device_key: str = Depends(require_device),
+    device: DeviceContext = Depends(require_registered_device),
 ):
     """Produce a signed forensic case bundle ZIP with expiring download token. No auto-sharing."""
-    _check_evidence_authorization(payload.user_id, request, x_device_key)
+    owner = _require_owner(device, payload.user_id)
+    payload = payload.model_copy(update={"user_id": owner})
     client = get_db()
     entries = []
     manifests = []
@@ -1155,7 +1301,10 @@ async def share_evidence_bundle(
             m_rows = _result_data(client.table("evidence_manifests").select("*").eq("id", entry["manifest_id"]).limit(1))
             if m_rows:
                 m_dict = dict(m_rows[0])
-                m_dict.setdefault("public_key", PUBLIC_KEY_HEX)
+                # Each manifest carries the key that signed it, which after rotation may be a retired one.
+                signer = KEYRING.get(str(m_dict.get("public_key_id")))
+                if signer:
+                    m_dict["public_key"] = signer["public_key"]
                 manifests.append(m_dict)
 
     bundle_id = str(uuid4())
@@ -1298,27 +1447,30 @@ async def record_incident_referral(
 # Pillar B: Survivor Consents
 # =============================================================================
 
-@app.get("/api/v1/consents/{user_id}")
-async def get_user_consents(user_id: str, _device: str = Depends(require_device)):
-    """Retrieve survivor consent toggles."""
-    client = get_db()
+def _consents_for(client: Client, user_id: str) -> dict[str, Any]:
     rows = _result_data(client.table("user_consents").select("*").eq("user_id", user_id).limit(1))
-    if not rows:
-        return {
-            "consents": {
-                "user_id": user_id,
-                "location": True,
-                "audio": False,
-                "responder_contact": False,
-                "share_evidence": False,
-            }
-        }
-    return {"consents": rows[0]}
+    if rows:
+        return rows[0]
+    return {"user_id": user_id, "location": True, "audio": False, "responder_contact": False,
+            "share_evidence": False, "recorded": False}
+
+
+@app.get("/api/v1/me/consents")
+async def get_my_consents(device: DeviceContext = Depends(require_registered_device)):
+    """Retrieve the calling survivor's consent toggles."""
+    return {"consents": _consents_for(get_db(), str(device.user_id))}
+
+
+@app.get("/api/v1/consents/{user_id}")
+async def get_user_consents(user_id: str, device: DeviceContext = Depends(require_registered_device)):
+    """Retrieve survivor consent toggles."""
+    return {"consents": _consents_for(get_db(), _require_owner(device, user_id))}
 
 
 @app.patch("/api/v1/consents")
-async def update_user_consents(payload: ConsentsUpdatePayload, _device: str = Depends(require_device)):
+async def update_user_consents(payload: ConsentsUpdatePayload, device: DeviceContext = Depends(require_registered_device)):
     """Update survivor consent toggles. DURESS/COVERT always overrides responder contact."""
+    payload = payload.model_copy(update={"user_id": _require_owner(device, payload.user_id)})
     client = get_db()
     now_utc = datetime.now(timezone.utc).isoformat()
     row = {
