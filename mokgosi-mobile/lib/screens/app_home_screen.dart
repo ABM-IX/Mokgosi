@@ -27,7 +27,6 @@ class _AppHomeScreenState extends State<AppHomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xff081421),
       body: IndexedStack(
         index: _currentIndex,
         children: const [
@@ -37,22 +36,18 @@ class _AppHomeScreenState extends State<AppHomeScreen> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
-        backgroundColor: const Color(0xff0d1624),
-        indicatorColor: const Color(0xff12a879).withValues(alpha: 0.25),
-        onDestinationSelected: (index) {
-          setState(() => _currentIndex = index);
-        },
+        onDestinationSelected: (index) => setState(() => _currentIndex = index),
         destinations: [
           NavigationDestination(
             key: const Key('tab_getting_around'),
-            icon: const Icon(Icons.directions_walk_outlined, color: Colors.white70),
-            selectedIcon: const Icon(Icons.directions_walk, color: Color(0xff12a879)),
+            icon: const Icon(Icons.directions_walk_outlined),
+            selectedIcon: const Icon(Icons.directions_walk),
             label: MokgosiL10n.get('getting_around'),
           ),
           NavigationDestination(
             key: const Key('tab_support_safety'),
-            icon: const Icon(Icons.shield_outlined, color: Colors.white70),
-            selectedIcon: const Icon(Icons.shield, color: Color(0xff38b2ac)),
+            icon: const Icon(Icons.support_outlined),
+            selectedIcon: const Icon(Icons.support),
             label: MokgosiL10n.get('support_and_safety'),
           ),
         ],

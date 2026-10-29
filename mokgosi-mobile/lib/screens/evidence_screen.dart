@@ -1,13 +1,34 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../config/l10n.dart';
+import '../config/mokgosi_config.dart';
+import '../config/theme.dart';
 import '../services/incident_api.dart';
+import '../widgets/common.dart';
 import 'calculator_disguise_screen.dart';
 
+const _kindLabels = <String, String>{'NOTE': 'Note', 'AUDIO': 'Recording', 'PHOTO': 'Photo'};
+const _recipientLabels = <String, String>{
+  'LEGAL': 'Lawyer or legal aid',
+  'POLICE': 'Police',
+  'COUNSELLOR': 'Counsellor',
+  'OTHER': 'Someone else',
+};
+
+/// The private journal: notes the person writes, kept on the phone, signed when backed up, and
+/// shared only as a link they create for someone they choose.
 class EvidenceScreen extends StatefulWidget {
-  const EvidenceScreen({super.key, this.userId = 'MOKGOSI_DEMO_USER'});
+  const EvidenceScreen({
+    super.key,
+    this.userId = 'MOKGOSI_DEMO_USER',
+    this.allowSampleCaptures = MokgosiConfig.demoMode,
+  });
 
   final String userId;
+
+  /// Audio and photo capture are not built yet. In demo builds these buttons add clearly
+  /// labelled placeholder entries; real builds hide them rather than pretend to record.
+  final bool allowSampleCaptures;
 
   @override
   State<EvidenceScreen> createState() => _EvidenceScreenState();
@@ -18,7 +39,7 @@ class _EvidenceScreenState extends State<EvidenceScreen> {
   bool _isLoading = true;
   bool _isScreenDimmed = false;
   final Set<String> _selectedEntryIds = {};
-  final List<Map<String, dynamic>> _shareAuditLog = [];
+  final List<Map<String, dynamic>> _shareHistory = [];
 
   @override
   void initState() {
@@ -49,27 +70,20 @@ class _EvidenceScreenState extends State<EvidenceScreen> {
     final shouldSave = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xff161b22),
-        title: const Text('Add Documented Note', style: TextStyle(color: Colors.white, fontSize: 18)),
+        title: const Text('Write a note'),
         content: TextField(
           key: const Key('note_input_field'),
           controller: noteController,
-          maxLines: 4,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(
-            hintText: 'Record facts, dates, witnesses, or incidents...',
-            hintStyle: TextStyle(color: Color(0xff718096)),
-            enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xff30363d))),
-            focusedBorder: OutlineInputBorder(borderSide: BorderSide(color: Color(0xff319795))),
-          ),
+          maxLines: 5,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(hintText: 'What happened, when and where, and who saw it'),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          ElevatedButton(
+          FilledButton(
             key: const Key('save_note_button'),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xff319795)),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Save Note', style: TextStyle(color: Colors.white)),
+            child: const Text('Save'),
           ),
         ],
       ),
@@ -77,77 +91,42 @@ class _EvidenceScreenState extends State<EvidenceScreen> {
 
     if (shouldSave == true && noteController.text.trim().isNotEmpty) {
       final text = noteController.text.trim();
-      final bytes = utf8.encode(text);
       await IncidentApi.storeEvidenceEntry(
         userId: widget.userId,
         kind: 'NOTE',
         notes: text,
-        fileBytes: bytes,
+        fileBytes: utf8.encode(text),
         filename: 'note_${DateTime.now().millisecondsSinceEpoch}.txt',
       );
       await _loadEntries();
     }
   }
 
-  Future<void> _captureAudio() async {
-    // Silent capture: simulated 10-second consenting audio clip
-    final bytes = utf8.encode('SURVIVOR_AUDIO_SAMPLE_${DateTime.now().toIso8601String()}');
+  Future<void> _addSample(String kind) async {
+    final isAudio = kind == 'AUDIO';
     await IncidentApi.storeEvidenceEntry(
       userId: widget.userId,
-      kind: 'AUDIO',
-      notes: 'Ambient acoustic capture (10s)',
-      fileBytes: bytes,
-      filename: 'audio_${DateTime.now().millisecondsSinceEpoch}.wav',
+      kind: kind,
+      notes: isAudio ? 'Sample recording (demo, no real audio)' : 'Sample photo (demo, no real picture)',
+      fileBytes: utf8.encode('MOKGOSI_DEMO_SAMPLE_${kind}_${DateTime.now().toIso8601String()}'),
+      filename: '${isAudio ? 'audio' : 'photo'}_${DateTime.now().millisecondsSinceEpoch}.${isAudio ? 'wav' : 'jpg'}',
     );
     await _loadEntries();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Audio clip captured silently and secured in local vault.'),
-          backgroundColor: Color(0xff2b6cb0),
-        ),
-      );
-    }
-  }
-
-  Future<void> _capturePhoto() async {
-    // Silent capture: simulated camera capture without shutter sound or flash preview
-    final bytes = utf8.encode('SURVIVOR_PHOTO_SAMPLE_${DateTime.now().toIso8601String()}');
-    await IncidentApi.storeEvidenceEntry(
-      userId: widget.userId,
-      kind: 'PHOTO',
-      notes: 'Documentary photograph captured silently',
-      fileBytes: bytes,
-      filename: 'photo_${DateTime.now().millisecondsSinceEpoch}.jpg',
-    );
-    await _loadEntries();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Photo captured silently and encrypted in vault.'),
-          backgroundColor: Color(0xff2b6cb0),
-        ),
-      );
-    }
   }
 
   Future<void> _deleteEntry(String entryId) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xff161b22),
-        title: const Text('Delete Evidence Entry?', style: TextStyle(color: Color(0xfffc8181))),
-        content: const Text(
-          'This will remove the entry from your phone. You can also request removal of server-backed copies.',
-          style: TextStyle(color: Color(0xffcbd5e0), fontSize: 13, height: 1.4),
-        ),
+        title: const Text('Delete this entry?'),
+        content: const Text('It will be removed from this phone and from the backup.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          ElevatedButton(
+          FilledButton(
             key: const Key('confirm_delete_entry'),
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xffe53e3e)),
+            style: FilledButton.styleFrom(backgroundColor: MokgosiColors.danger),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete Entry', style: TextStyle(color: Colors.white)),
+            child: const Text('Delete'),
           ),
         ],
       ),
@@ -161,45 +140,35 @@ class _EvidenceScreenState extends State<EvidenceScreen> {
 
   Future<void> _showShareBundleDialog() async {
     if (_selectedEntryIds.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select at least one evidence entry to share.'), backgroundColor: Colors.amber),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Choose at least one entry to share.')));
       return;
     }
 
     String recipientType = 'LEGAL';
     final notesController = TextEditingController();
+    final count = _selectedEntryIds.length;
 
     await showDialog<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          backgroundColor: const Color(0xff161b22),
-          title: Text(
-            'Share Case Bundle (${_selectedEntryIds.length} items)',
-            style: const TextStyle(color: Colors.white, fontSize: 18),
-          ),
+          title: Text(count == 1 ? 'Share 1 entry' : 'Share $count entries'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Text(
-                  'What leaves your phone: A cryptographically signed ZIP containing the selected evidence, SHA-256 manifests, and a verification script for legal admissibility.',
-                  style: TextStyle(color: Color(0xffcbd5e0), fontSize: 12, height: 1.4),
+                  'You will get a link to a signed file with the entries you chose. Anyone with the link can download it for 2 hours, so send it only to the person it is for.',
+                  style: TextStyle(color: MokgosiColors.inkMuted, height: 1.4),
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
                   initialValue: recipientType,
-                  dropdownColor: const Color(0xff21262d),
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(labelText: 'Recipient Type', labelStyle: TextStyle(color: Color(0xffa0aec0))),
-                  items: const [
-                    DropdownMenuItem(value: 'LEGAL', child: Text('Legal Aid / Attorney')),
-                    DropdownMenuItem(value: 'POLICE', child: Text('Police GBV Desk')),
-                    DropdownMenuItem(value: 'COUNSELLOR', child: Text('Licensed Counsellor')),
-                    DropdownMenuItem(value: 'OTHER', child: Text('Other Trusted Party')),
-                  ],
+                  decoration: const InputDecoration(labelText: 'Who is it for?'),
+                  items: _recipientLabels.entries
+                      .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+                      .toList(),
                   onChanged: (val) {
                     if (val != null) setDialogState(() => recipientType = val);
                   },
@@ -207,20 +176,15 @@ class _EvidenceScreenState extends State<EvidenceScreen> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: notesController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    labelText: 'Confidential Notes for Bundle (optional)',
-                    labelStyle: TextStyle(color: Color(0xffa0aec0)),
-                  ),
+                  decoration: const InputDecoration(labelText: 'A note for them (optional)'),
                 ),
               ],
             ),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            ElevatedButton(
+            FilledButton(
               key: const Key('generate_bundle_button'),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xff319795)),
               onPressed: () async {
                 Navigator.pop(ctx);
                 final res = await IncidentApi.shareEvidenceBundle(
@@ -229,21 +193,24 @@ class _EvidenceScreenState extends State<EvidenceScreen> {
                   recipientType: recipientType,
                   notes: notesController.text.trim().isNotEmpty ? notesController.text.trim() : null,
                 );
-                if (res != null && mounted) {
-                  final now = DateTime.now().toLocal().toString().split('.')[0];
-                  setState(() {
-                    _shareAuditLog.add({
-                      'date': now,
-                      'recipient': recipientType,
-                      'count': _selectedEntryIds.length,
-                      'url': res['download_url'] ?? '',
-                    });
-                    _selectedEntryIds.clear();
-                  });
-                  _showBundleLinkModal(res['download_url'] ?? '', recipientType);
+                if (!mounted) return;
+                if (res == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('The link could not be created. Check your connection and try again.')),
+                  );
+                  return;
                 }
+                setState(() {
+                  _shareHistory.add({
+                    'when': DateTime.now().toUtc().toIso8601String(),
+                    'recipient': recipientType,
+                    'count': _selectedEntryIds.length,
+                  });
+                  _selectedEntryIds.clear();
+                });
+                _showBundleLinkModal(res['download_url']?.toString() ?? '', recipientType);
               },
-              child: const Text('Generate Bundle', style: TextStyle(color: Colors.white)),
+              child: const Text('Create link'),
             ),
           ],
         ),
@@ -251,30 +218,30 @@ class _EvidenceScreenState extends State<EvidenceScreen> {
     );
   }
 
-  void _showBundleLinkModal(String downloadUrl, String recipient) {
+  void _showBundleLinkModal(String downloadPath, String recipient) {
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xff161b22),
-        title: const Text('Case Bundle Ready', style: TextStyle(color: Color(0xff4fd1c5))),
+        title: const Text('Link ready'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Sealed bundle prepared for $recipient.', style: const TextStyle(color: Colors.white)),
+            Text('For: ${_recipientLabels[recipient] ?? recipient}'),
             const SizedBox(height: 10),
             Container(
+              width: double.infinity,
               padding: const EdgeInsets.all(10),
-              color: const Color(0xff0d1117),
-              child: SelectableText(
-                '${IncidentApi.httpClient.toString().contains("Mock") ? "https://mokgosi.org" : "https://api.mokgosi.bw"}$downloadUrl',
-                style: const TextStyle(color: Color(0xff81e6d9), fontSize: 12),
+              decoration: BoxDecoration(
+                color: MokgosiColors.surfaceMuted,
+                borderRadius: BorderRadius.circular(8),
               ),
+              child: SelectableText('${MokgosiConfig.apiBase}$downloadPath', style: const TextStyle(fontSize: 13)),
             ),
             const SizedBox(height: 10),
             const Text(
-              'Link expires automatically in 2 hours. Access is recorded in your audit log.',
-              style: TextStyle(color: Color(0xffa0aec0), fontSize: 11),
+              'The link stops working after 2 hours, and every download is recorded.',
+              style: TextStyle(color: MokgosiColors.inkMuted, fontSize: 13),
             ),
           ],
         ),
@@ -292,233 +259,192 @@ class _EvidenceScreenState extends State<EvidenceScreen> {
         onTap: () => setState(() => _isScreenDimmed = false),
         child: Container(
           color: Colors.black,
-          alignment: Alignment.center,
-          child: const Text('Screen Dimmed — Tap anywhere to restore', style: TextStyle(color: Colors.white24, fontSize: 12)),
+          alignment: Alignment.bottomCenter,
+          padding: const EdgeInsets.only(bottom: 48),
+          child: const Text('Tap to return', style: TextStyle(color: Colors.white24, fontSize: 12)),
         ),
       );
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xff0d1117),
       appBar: AppBar(
-        backgroundColor: const Color(0xff161b22),
-        title: Text(MokgosiL10n.get('evidence_vault'), style: const TextStyle(fontSize: 18)),
+        title: Text(MokgosiL10n.get('evidence_vault')),
         actions: [
           IconButton(
-            tooltip: 'Dim Screen (Stealth Mode)',
-            icon: const Icon(Icons.brightness_2_outlined, color: Color(0xffcbd5e0)),
+            tooltip: 'Dim the screen',
+            icon: const Icon(Icons.dark_mode_outlined),
             onPressed: () => setState(() => _isScreenDimmed = true),
           ),
-          IconButton(
-            key: const Key('evidence_quick_exit'),
-            tooltip: MokgosiL10n.get('quick_exit'),
-            icon: const Icon(Icons.close_fullscreen, color: Color(0xfffc8181)),
-            onPressed: _quickExit,
-          ),
+          HideAction(key: const Key('evidence_quick_exit'), label: MokgosiL10n.get('quick_exit'), onPressed: _quickExit),
         ],
       ),
       body: SafeArea(
         child: Column(
           children: [
-            // Quick Capture Action Bar
-            Container(
-              padding: const EdgeInsets.all(14),
-              color: const Color(0xff161b22),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const Text(
-                    'Silent Evidence Capture (Survivor-Owned)',
-                    style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                    'Write down what happened, when, and who was there. Entries stay private unless you choose to share them.',
+                    style: TextStyle(color: MokgosiColors.inkMuted, height: 1.4),
                   ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          key: const Key('btn_record_audio'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xff2d3748),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                          ),
-                          onPressed: _captureAudio,
-                          icon: const Icon(Icons.mic, size: 18, color: Color(0xff4fd1c5)),
-                          label: const Text('Record Audio', style: TextStyle(fontSize: 12)),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          key: const Key('btn_take_photo'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xff2d3748),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                          ),
-                          onPressed: _capturePhoto,
-                          icon: const Icon(Icons.camera_alt, size: 18, color: Color(0xff63b3ed)),
-                          label: const Text('Take Photo', style: TextStyle(fontSize: 12)),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          key: const Key('btn_write_note'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xff2d3748),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                          ),
-                          onPressed: _captureNote,
-                          icon: const Icon(Icons.note_add, size: 18, color: Color(0xfff6ad55)),
-                          label: const Text('Write Note', style: TextStyle(fontSize: 12)),
-                        ),
-                      ),
-                    ],
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    key: const Key('btn_write_note'),
+                    onPressed: _captureNote,
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('Write a note'),
                   ),
+                  if (widget.allowSampleCaptures) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            key: const Key('btn_record_audio'),
+                            onPressed: () => _addSample('AUDIO'),
+                            child: const Text('Sample recording'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton(
+                            key: const Key('btn_take_photo'),
+                            onPressed: () => _addSample('PHOTO'),
+                            child: const Text('Sample photo'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Demo only: these add placeholder entries. Recording and photos are not built yet.',
+                      style: TextStyle(color: MokgosiColors.inkFaint, fontSize: 12),
+                    ),
+                  ],
                 ],
               ),
             ),
-            // Multi-select Share Bar
             if (_selectedEntryIds.isNotEmpty)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                color: const Color(0xff234e52),
+                padding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
+                color: MokgosiColors.accentSoft,
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      '${_selectedEntryIds.length} entries selected',
-                      style: const TextStyle(color: Color(0xff81e6d9), fontWeight: FontWeight.bold),
+                    Expanded(
+                      child: Text(
+                        '${_selectedEntryIds.length} selected',
+                        style: const TextStyle(color: MokgosiColors.accent, fontWeight: FontWeight.w600),
+                      ),
                     ),
-                    ElevatedButton.icon(
+                    FilledButton(
                       key: const Key('share_selected_button'),
-                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xff319795)),
+                      style: FilledButton.styleFrom(minimumSize: const Size(0, 40)),
                       onPressed: _showShareBundleDialog,
-                      icon: const Icon(Icons.share, size: 16, color: Colors.white),
-                      label: const Text('Create Case Bundle', style: TextStyle(color: Colors.white, fontSize: 12)),
+                      child: const Text('Share'),
                     ),
                   ],
                 ),
               ),
-            // Timeline
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : _entries.isEmpty
-                      ? const Center(
+                      ? const Padding(
+                          padding: EdgeInsets.all(32),
                           child: Text(
-                            'No evidence entries recorded yet.\nUse the quick buttons above to capture silent notes, audio, or photos.',
+                            'Nothing here yet. Your notes will appear here, newest first.',
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Color(0xff718096), height: 1.5),
+                            style: TextStyle(color: MokgosiColors.inkFaint, height: 1.5),
                           ),
                         )
-                      : ListView.builder(
-                          padding: const EdgeInsets.all(16),
+                      : ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                           itemCount: _entries.length,
-                          itemBuilder: (ctx, idx) {
-                            final entry = _entries[idx];
-                            final id = entry['id']?.toString() ?? '';
-                            final kind = entry['kind'] ?? 'NOTE';
-                            final capturedUtc = entry['captured_at_utc'] ?? '';
-                            final isSynced = entry['manifest_id'] != null || entry['is_synced'] == true;
-                            final isSelected = _selectedEntryIds.contains(id);
-
-                            return Card(
-                              color: const Color(0xff161b22),
-                              margin: const EdgeInsets.only(bottom: 10),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                                side: BorderSide(
-                                  color: isSelected ? const Color(0xff319795) : const Color(0xff30363d),
-                                  width: isSelected ? 2 : 1,
-                                ),
-                              ),
-                              child: ListTile(
-                                leading: Checkbox(
-                                  value: isSelected,
-                                  activeColor: const Color(0xff319795),
-                                  onChanged: (val) {
-                                    setState(() {
-                                      if (val == true) {
-                                        _selectedEntryIds.add(id);
-                                      } else {
-                                        _selectedEntryIds.remove(id);
-                                      }
-                                    });
-                                  },
-                                ),
-                                title: Row(
-                                  children: [
-                                    Text(
-                                      kind,
-                                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    if (isSynced)
-                                      const Row(
-                                        children: [
-                                          Icon(Icons.check_circle, color: Color(0xff48bb78), size: 14),
-                                          SizedBox(width: 4),
-                                          Text('Backed up & signed', style: TextStyle(color: Color(0xff48bb78), fontSize: 11)),
-                                        ],
-                                      )
-                                    else
-                                      const Row(
-                                        children: [
-                                          Icon(Icons.phone_android, color: Color(0xffcbd5e0), size: 14),
-                                          SizedBox(width: 4),
-                                          Text('Saved on this phone', style: TextStyle(color: Color(0xffa0aec0), fontSize: 11)),
-                                        ],
-                                      ),
-                                  ],
-                                ),
-                                subtitle: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    if (entry['notes'] != null && entry['notes'].toString().isNotEmpty)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 4),
-                                        child: Text(
-                                          entry['notes'].toString(),
-                                          style: const TextStyle(color: Color(0xffcbd5e0), fontSize: 12),
-                                        ),
-                                      ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      capturedUtc.split('.')[0].replaceFirst('T', ' '),
-                                      style: const TextStyle(color: Color(0xff718096), fontSize: 11),
-                                    ),
-                                  ],
-                                ),
-                                trailing: IconButton(
-                                  icon: const Icon(Icons.delete_outline, color: Color(0xffe53e3e), size: 20),
-                                  onPressed: () => _deleteEntry(id),
-                                ),
-                              ),
-                            );
-                          },
+                          separatorBuilder: (_, __) => const SizedBox(height: 8),
+                          itemBuilder: (ctx, idx) => _entryCard(_entries[idx]),
                         ),
             ),
-            // Audit Log footer
-            if (_shareAuditLog.isNotEmpty)
+            if (_shareHistory.isNotEmpty)
               Container(
-                padding: const EdgeInsets.all(12),
-                color: const Color(0xff161b22),
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                decoration: const BoxDecoration(
+                  color: MokgosiColors.surface,
+                  border: Border(top: BorderSide(color: MokgosiColors.border)),
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Case Bundle Sharing History', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 6),
-                    ..._shareAuditLog.map((log) => Text(
-                          'Shared ${log['count']} items with ${log['recipient']} on ${log['date']}',
-                          style: const TextStyle(color: Color(0xff81e6d9), fontSize: 11),
-                        )),
+                    const SectionLabel('Shared'),
+                    ..._shareHistory.map((log) {
+                      final n = log['count'] as int;
+                      final who = (_recipientLabels[log['recipient']] ?? 'someone').toLowerCase();
+                      return Text(
+                        'Shared ${n == 1 ? '1 entry' : '$n entries'} with $who · ${formatWhen(log['when'] as String)}',
+                        style: const TextStyle(color: MokgosiColors.inkMuted, fontSize: 13),
+                      );
+                    }),
                   ],
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _entryCard(Map<String, dynamic> entry) {
+    final id = entry['id']?.toString() ?? '';
+    final kind = entry['kind']?.toString() ?? 'NOTE';
+    final backedUp = entry['manifest_id'] != null || entry['is_synced'] == true;
+    final selected = _selectedEntryIds.contains(id);
+    final notes = entry['notes']?.toString() ?? '';
+    return Card(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: selected ? MokgosiColors.accent : MokgosiColors.border, width: selected ? 1.5 : 1),
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.fromLTRB(4, 6, 4, 6),
+        leading: Checkbox(
+          value: selected,
+          onChanged: (val) => setState(() {
+            if (val == true) {
+              _selectedEntryIds.add(id);
+            } else {
+              _selectedEntryIds.remove(id);
+            }
+          }),
+        ),
+        title: Row(
+          children: [
+            Text(_kindLabels[kind] ?? kind, style: const TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(width: 8),
+            Text(
+              backedUp ? 'Backed up and signed' : 'Only on this phone',
+              style: TextStyle(color: backedUp ? MokgosiColors.success : MokgosiColors.inkFaint, fontSize: 12),
+            ),
+          ],
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (notes.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(notes, style: const TextStyle(color: MokgosiColors.ink, fontSize: 14)),
+              ),
+            const SizedBox(height: 4),
+            Text(formatWhen(entry['captured_at_utc']?.toString()), style: const TextStyle(fontSize: 12)),
+          ],
+        ),
+        trailing: IconButton(
+          tooltip: 'Delete',
+          icon: const Icon(Icons.delete_outline),
+          onPressed: () => _deleteEntry(id),
         ),
       ),
     );

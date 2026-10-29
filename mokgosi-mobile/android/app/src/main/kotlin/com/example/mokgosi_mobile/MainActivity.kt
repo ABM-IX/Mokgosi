@@ -35,8 +35,8 @@ class MainActivity : FlutterActivity() {
                         result.success(true)
                     }
                     "startForegroundEscort" -> {
-                        val title = call.argument<String>("title") ?: "Mokgosi Escort Active"
-                        val body = call.argument<String>("body") ?: "Monitoring route & motion sensors."
+                        val title = call.argument<String>("title") ?: "Walk in progress"
+                        val body = call.argument<String>("body") ?: "Tap to check in or end the walk."
                         val includeMic = call.argument<Boolean>("includeMicrophone") ?: false
                         val serviceIntent = Intent(this, EscortForegroundService::class.java).apply {
                             putExtra(EscortForegroundService.EXTRA_TITLE, title)

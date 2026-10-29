@@ -1,8 +1,17 @@
 import 'package:flutter/material.dart';
 import '../config/l10n.dart';
 import '../config/mokgosi_config.dart';
+import '../config/theme.dart';
 import '../services/incident_api.dart';
+import '../widgets/common.dart';
 import 'calculator_disguise_screen.dart';
+
+const _roleLabels = <String, String>{
+  'TRUSTED_PERSON': 'Trusted friend',
+  'FAMILY': 'Family',
+  'NEIGHBOUR': 'Neighbour',
+  'SUPPORT_ORG': 'Support organisation',
+};
 
 class SafeNetworkScreen extends StatefulWidget {
   const SafeNetworkScreen({super.key, this.userId = 'MOKGOSI_DEMO_USER'});
@@ -44,10 +53,7 @@ class _SafeNetworkScreenState extends State<SafeNetworkScreen> {
   Future<void> _showAddContactDialog() async {
     if (_contacts.length >= 5) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Maximum 5 trusted contacts allowed in safe network.'),
-          backgroundColor: Colors.amber,
-        ),
+        const SnackBar(content: Text('You can have up to 5 trusted contacts. Remove one to add someone new.')),
       );
       return;
     }
@@ -55,64 +61,43 @@ class _SafeNetworkScreenState extends State<SafeNetworkScreen> {
     final nameController = TextEditingController();
     final phoneController = TextEditingController();
     String selectedRole = 'TRUSTED_PERSON';
-    int priority = _contacts.length + 1;
+    final priority = _contacts.length + 1;
 
     await showDialog<void>(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          backgroundColor: const Color(0xff1a202c),
-          title: Text(
-            'Add Safe Network Contact ($priority/5)',
-            style: const TextStyle(color: Colors.white, fontSize: 18),
-          ),
+          title: const Text('Add a trusted contact'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
-                  'Choose someone you trust who the person causing harm cannot access or pressure.',
-                  style: TextStyle(color: Color(0xfffc8181), fontSize: 13, height: 1.4),
+                Text(
+                  priority == 1 ? 'They will be messaged first.' : 'They will be number $priority in the order.',
+                  style: const TextStyle(color: MokgosiColors.inkMuted),
                 ),
                 const SizedBox(height: 16),
                 TextField(
                   key: const Key('contact_name_field'),
                   controller: nameController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    labelText: 'Contact Name / Alias',
-                    labelStyle: TextStyle(color: Color(0xffa0aec0)),
-                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xff4a5568))),
-                  ),
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(labelText: 'Name'),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   key: const Key('contact_phone_field'),
                   controller: phoneController,
                   keyboardType: TextInputType.phone,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    labelText: 'Phone (E.164 format e.g. +26771000000)',
-                    labelStyle: TextStyle(color: Color(0xffa0aec0)),
-                    enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Color(0xff4a5568))),
-                  ),
+                  decoration: const InputDecoration(labelText: 'Mobile number', hintText: '+267 7X XXX XXX'),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: selectedRole,
-                  dropdownColor: const Color(0xff2d3748),
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    labelText: 'Role in Safe Network',
-                    labelStyle: TextStyle(color: Color(0xffa0aec0)),
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: 'TRUSTED_PERSON', child: Text('Trusted Person')),
-                    DropdownMenuItem(value: 'FAMILY', child: Text('Family Member')),
-                    DropdownMenuItem(value: 'NEIGHBOUR', child: Text('Neighbour')),
-                    DropdownMenuItem(value: 'SUPPORT_ORG', child: Text('Support Organisation')),
-                  ],
+                  decoration: const InputDecoration(labelText: 'Who are they to you?'),
+                  items: _roleLabels.entries
+                      .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+                      .toList(),
                   onChanged: (val) {
                     if (val != null) setDialogState(() => selectedRole = val);
                   },
@@ -121,21 +106,16 @@ class _SafeNetworkScreenState extends State<SafeNetworkScreen> {
             ),
           ),
           actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
-            ),
-            ElevatedButton(
+            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
+            FilledButton(
               key: const Key('save_contact_button'),
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xff319795)),
               onPressed: () async {
                 final name = nameController.text.trim();
-                final phone = phoneController.text.trim();
+                final phone = phoneController.text.replaceAll(' ', '').trim();
                 if (name.isEmpty || !MokgosiConfig.isValidE164(phone)) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Please enter a valid name and E.164 phone number (+267...).'),
-                      backgroundColor: Colors.redAccent,
+                      content: Text('Add a name, and a number that starts with + and the country code, like +267 71 234 567.'),
                     ),
                   );
                   return;
@@ -150,7 +130,7 @@ class _SafeNetworkScreenState extends State<SafeNetworkScreen> {
                 );
                 await _loadContacts();
               },
-              child: const Text('Save Contact', style: TextStyle(color: Colors.white)),
+              child: const Text('Save'),
             ),
           ],
         ),
@@ -158,194 +138,115 @@ class _SafeNetworkScreenState extends State<SafeNetworkScreen> {
     );
   }
 
-  Future<void> _sendTestMessage(Map<String, dynamic> contact) async {
+  Future<void> _removeContact(Map<String, dynamic> contact) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xff1a202c),
-        title: Text('Test ${contact['name']}?'),
-        content: Text(
-          'A test safety SMS will be sent to ${contact['phone_e164']}. '
-          'They will receive a signed link to confirm they received it.',
-          style: const TextStyle(color: Color(0xffcbd5e0), height: 1.4),
-        ),
+        title: Text('Remove ${contact['name'] ?? 'this contact'}?'),
+        content: const Text('They will no longer be told when you raise an alert.'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xff319795)),
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: MokgosiColors.danger),
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Send Test', style: TextStyle(color: Colors.white)),
+            child: const Text('Remove'),
           ),
         ],
       ),
     );
-
-    if (confirmed == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Test message dispatched to ${contact['name']}.'),
-          backgroundColor: const Color(0xff2b6cb0),
-        ),
-      );
+    if (confirmed == true) {
+      await IncidentApi.deleteTrustedContact(contact['id'].toString());
+      await _loadContacts();
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xff0d1117),
       appBar: AppBar(
-        backgroundColor: const Color(0xff161b22),
-        title: Text(MokgosiL10n.get('safe_network'), style: const TextStyle(fontSize: 18)),
+        title: Text(MokgosiL10n.get('safe_network')),
         actions: [
-          IconButton(
-            key: const Key('quick_exit_button'),
-            tooltip: MokgosiL10n.get('quick_exit'),
-            icon: const Icon(Icons.close_fullscreen, color: Color(0xfffc8181)),
-            onPressed: _quickExit,
-          ),
+          HideAction(key: const Key('quick_exit_button'), label: MokgosiL10n.get('quick_exit'), onPressed: _quickExit),
         ],
       ),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
           children: [
-            // Warning Banner
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: const Color(0xff742a2a).withValues(alpha: 0.35),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xffe53e3e)),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(Icons.security, color: Color(0xfffc8181), size: 22),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      MokgosiL10n.get('safe_network_warning'),
-                      style: const TextStyle(
-                        color: Color(0xfffeb2b2),
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        height: 1.4,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            InfoNote(MokgosiL10n.get('safe_network_warning'), tone: NoteTone.warning),
             const SizedBox(height: 16),
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'Trusted Circle (${_contacts.length}/5)',
-                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                Expanded(
+                  child: Text(
+                    '${_contacts.length} of 5 added',
+                    style: const TextStyle(color: MokgosiColors.inkMuted),
+                  ),
                 ),
                 TextButton.icon(
                   key: const Key('add_contact_button'),
                   onPressed: _showAddContactDialog,
-                  icon: const Icon(Icons.person_add, color: Color(0xff38b2ac), size: 20),
-                  label: const Text('Add Contact', style: TextStyle(color: Color(0xff38b2ac))),
+                  icon: const Icon(Icons.add, size: 20),
+                  label: const Text('Add contact'),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             if (_isLoading)
-              const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator()))
+              const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator()))
             else if (_contacts.isEmpty)
-              Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: const Color(0xff161b22),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xff30363d)),
-                ),
-                child: const Column(
-                  children: [
-                    Icon(Icons.people_outline, color: Color(0xff718096), size: 40),
-                    SizedBox(height: 12),
-                    Text(
-                      'No safe network contacts yet',
-                      style: TextStyle(color: Colors.white70, fontSize: 15),
-                    ),
-                    SizedBox(height: 6),
-                    Text(
-                      'Add up to 5 people you trust to be notified in priority order during an alert.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Color(0xff718096), fontSize: 13, height: 1.4),
-                    ),
-                  ],
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('No trusted contacts yet', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                      SizedBox(height: 6),
+                      Text(
+                        'Add up to five people. When you raise an alert they are messaged one at a time, in the order you choose, until someone replies.',
+                        style: TextStyle(color: MokgosiColors.inkMuted, height: 1.4),
+                      ),
+                    ],
+                  ),
                 ),
               )
             else
-              ..._contacts.map((c) {
-                final priority = c['priority'] ?? 1;
-                final isFirst = priority == 1;
-                return Card(
-                  color: const Color(0xff161b22),
-                  margin: const EdgeInsets.symmetric(vertical: 6),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    side: BorderSide(color: isFirst ? const Color(0xff319795) : const Color(0xff30363d)),
-                  ),
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                    leading: CircleAvatar(
-                      backgroundColor: isFirst ? const Color(0xff319795) : const Color(0xff2d3748),
-                      child: Text(
-                        '$priority',
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    title: Text(
-                      c['name'] ?? 'Contact',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-                    ),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(c['phone_e164'] ?? '', style: const TextStyle(color: Color(0xffa0aec0), fontSize: 13)),
-                        const SizedBox(height: 4),
-                        Text(
-                          isFirst ? MokgosiL10n.get('priority_1') : 'Priority #$priority Escalation',
-                          style: TextStyle(
-                            color: isFirst ? const Color(0xff4fd1c5) : const Color(0xff718096),
-                            fontSize: 12,
-                            fontWeight: isFirst ? FontWeight.bold : FontWeight.normal,
-                          ),
-                        ),
-                      ],
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          tooltip: 'Send Test Alert',
-                          icon: const Icon(Icons.send_outlined, color: Color(0xff63b3ed), size: 20),
-                          onPressed: () => _sendTestMessage(c),
-                        ),
-                        IconButton(
-                          tooltip: 'Delete Contact',
-                          icon: const Icon(Icons.delete_outline, color: Color(0xffe53e3e), size: 20),
-                          onPressed: () async {
-                            await IncidentApi.deleteTrustedContact(c['id'].toString());
-                            await _loadContacts();
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }),
+              Card(
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  children: [
+                    for (var i = 0; i < _contacts.length; i++) ...[
+                      if (i > 0) const Divider(indent: 72),
+                      _contactTile(_contacts[i]),
+                    ],
+                  ],
+                ),
+              ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _contactTile(Map<String, dynamic> c) {
+    final priority = c['priority'] ?? 1;
+    final role = _roleLabels[c['role']] ?? 'Trusted contact';
+    final order = priority == 1 ? MokgosiL10n.get('priority_1') : 'Number $priority';
+    return ListTile(
+      contentPadding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
+      leading: CircleAvatar(
+        backgroundColor: priority == 1 ? MokgosiColors.accent : MokgosiColors.surfaceMuted,
+        foregroundColor: priority == 1 ? Colors.white : MokgosiColors.ink,
+        child: Text('$priority'),
+      ),
+      title: Text(c['name'] ?? 'Contact', style: const TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: Text('$role · ${formatPhone(c['phone_e164']?.toString())}\n$order'),
+      isThreeLine: true,
+      trailing: IconButton(
+        tooltip: 'Remove',
+        icon: const Icon(Icons.delete_outline),
+        onPressed: () => _removeContact(c),
       ),
     );
   }

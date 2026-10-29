@@ -2,12 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../config/mokgosi_config.dart';
+import '../config/theme.dart';
 import '../services/incident_api.dart';
 import '../services/motion_telemetry.dart';
 import '../services/notification_guard.dart';
 import 'checkin_prompt.dart';
 import 'decoy_safe_screen.dart';
 import 'safety_setup_screen.dart';
+import '../widgets/common.dart';
 
 class EscortHome extends StatefulWidget {
   const EscortHome({
@@ -39,7 +41,7 @@ class _EscortHomeState extends State<EscortHome> {
   bool _showDemoDrawer = false;
   int _queuedCount = 0;
   String? _activeIncidentId;
-  String _message = 'Your call for help. A connected response.';
+  String _message = '';
 
   @override
   void initState() {
@@ -63,7 +65,8 @@ class _EscortHomeState extends State<EscortHome> {
         _profile.category = (map['category'] ?? 'PERSONAL_SAFETY').toString();
         _profile.consentLocation = map['consent_location'] != false;
         _profile.consentAudio = map['consent_audio'] == true;
-        _profile.pinToGaboroneDemoCbd = map['pin_to_gaborone_demo_cbd'] != false;
+        _profile.pinToGaboroneDemoCbd =
+            MokgosiConfig.demoMode && map['pin_to_gaborone_demo_cbd'] != false;
       } catch (_) {}
     }
     if (mounted) {
@@ -161,7 +164,7 @@ class _EscortHomeState extends State<EscortHome> {
       _checking = false;
       _active = true;
       _activeEscortTotalSeconds = extensionSeconds;
-      _message = 'Escort extended by 5 minutes.';
+      _message = 'Walk extended by 5 minutes.';
     });
     _count(extensionSeconds, _showCheckin);
   }
@@ -188,7 +191,7 @@ class _EscortHomeState extends State<EscortHome> {
     if (!covert && mounted) {
       setState(() {
         _sending = true;
-        _message = 'Sending alert…';
+        _message = 'Sending…';
       });
     }
 
@@ -256,12 +259,12 @@ class _EscortHomeState extends State<EscortHome> {
             _active = false;
             _checking = false;
             _seconds = 0;
-            _message = 'Home safe confirmed. Escort ended.';
+            _message = 'Walk ended. Glad you got there.';
           });
         } else {
           setState(() {
             _checking = false;
-            _message = 'Check-in confirmed. Continuing escort.';
+            _message = 'Checked in. The walk continues.';
           });
           _startEscort();
         }
@@ -294,52 +297,43 @@ class _EscortHomeState extends State<EscortHome> {
     setState(() {
       _queuedCount = remaining.length;
       if (flushed > 0) {
-        _message = 'Delivered $flushed queued offline alert(s).';
+        _message = flushed == 1 ? 'Sent the alert that was waiting.' : 'Sent $flushed alerts that were waiting.';
       }
     });
   }
 
   String _trustedContactSummary() {
-    if (_profile.trustedContactPhone.trim().isEmpty) {
-      return 'Trusted person · Not configured (tap gear to set up)';
+    final phone = _profile.trustedContactPhone.trim();
+    if (phone.isEmpty) {
+      return 'No trusted contact yet. Add one in Settings.';
     }
-    final label = _profile.trustedContactName.trim().isNotEmpty
-        ? '${_profile.trustedContactName.trim()} (${_profile.trustedContactPhone.trim()})'
-        : _profile.trustedContactPhone.trim();
-    return 'Trusted person · $label';
+    final name = _profile.trustedContactName.trim();
+    return name.isNotEmpty
+        ? 'Your alerts go to $name, ${formatPhone(phone)}.'
+        : 'Your alerts go to ${formatPhone(phone)}.';
   }
+
+  String _clock(int seconds) => '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
 
   @override
   Widget build(BuildContext context) {
-    final startLabel = _profile.escortDurationSeconds == 30
-        ? 'START 30 SECOND ESCORT'
-        : 'START ${(_profile.escortDurationSeconds / 60).round()} MINUTE ESCORT';
+    final seconds = _profile.escortDurationSeconds;
+    final startLabel = seconds < 60 ? 'Start a $seconds-second walk' : 'Start a ${(seconds / 60).round()}-minute walk';
+    final idle = !_active && !_checking;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Text('MOKGOSI'),
-            Text(
-              'PERSONAL SAFETY & RESPONSE NETWORK',
-              style: TextStyle(fontSize: 10),
-            ),
-          ],
-        ),
+        title: const Text('Mokgosi'),
         actions: <Widget>[
-          IconButton(
-            key: const Key('toggle_rehearsal_controls_button'),
-            tooltip: 'Demo & Rehearsal Controls',
-            icon: Icon(
-              _showDemoDrawer ? Icons.science : Icons.science_outlined,
-              color: _showDemoDrawer ? const Color(0xff55d9ad) : Colors.white70,
+          if (MokgosiConfig.demoMode || widget.initialDemoControlsOpen)
+            TextButton(
+              key: const Key('toggle_rehearsal_controls_button'),
+              onPressed: () => setState(() => _showDemoDrawer = !_showDemoDrawer),
+              child: Text(_showDemoDrawer ? 'Hide demo tools' : 'Demo tools'),
             ),
-            onPressed: () => setState(() => _showDemoDrawer = !_showDemoDrawer),
-          ),
           IconButton(
             key: const Key('open_safety_setup_button'),
-            tooltip: 'Trusted Person & PIN Setup',
+            tooltip: 'Settings',
             icon: const Icon(Icons.settings_outlined),
             onPressed: () {
               Navigator.of(context).push(
@@ -360,82 +354,11 @@ class _EscortHomeState extends State<EscortHome> {
       ),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(22),
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
           children: <Widget>[
-            const SizedBox(height: 8),
-            const Icon(Icons.shield_outlined, size: 68, color: Color(0xff55d9ad)),
-            const SizedBox(height: 14),
-            Text(
-              _active ? 'ESCORT ACTIVE' : 'YOU ARE IN CONTROL',
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 21),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              _active ? 'Check-in in $_seconds seconds' : _message,
-              key: const Key('status_message_text'),
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white70),
-            ),
             if (_queuedCount > 0) ...<Widget>[
+              _queueNotice(),
               const SizedBox(height: 12),
-              Card(
-                color: const Color(0xff3a2a14),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  child: Row(
-                    children: <Widget>[
-                      const Icon(Icons.cloud_off, color: Color(0xffffc470), size: 20),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          'Offline queue: $_queuedCount alert(s) waiting for signal.',
-                          style: const TextStyle(color: Color(0xffffe2b0), fontSize: 12),
-                        ),
-                      ),
-                      TextButton(
-                        key: const Key('flush_offline_queue_button'),
-                        onPressed: _flushOfflineQueueNow,
-                        child: const Text('RETRY NOW'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-            const SizedBox(height: 18),
-            if (!_active && !_checking) _buildCategoryAndConsentCard(),
-            if (_active) ...<Widget>[
-              LinearProgressIndicator(
-                value: (1 - (_seconds / _activeEscortTotalSeconds)).clamp(0.0, 1.0),
-                minHeight: 8,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              const SizedBox(height: 18),
-            ],
-            if (!_active && !_checking)
-              FilledButton.icon(
-                key: const Key('start_escort_button'),
-                onPressed: _sending ? null : () => _startEscort(),
-                icon: const Icon(Icons.directions_walk),
-                label: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Text(startLabel),
-                ),
-              ),
-            if (_active && !_checking) ...<Widget>[
-              OutlinedButton(
-                key: const Key('checkin_now_button'),
-                onPressed: _showCheckin,
-                child: const Text('CHECK IN NOW'),
-              ),
-              const SizedBox(height: 10),
-              TextButton.icon(
-                key: const Key('request_end_escort_button'),
-                onPressed: _showCheckin,
-                icon: const Icon(Icons.home_outlined, size: 18),
-                label: const Text("I'M HOME SAFE — END ESCORT (PIN REQUIRED)"),
-              ),
             ],
             if (_checking)
               CheckinPromptCard(
@@ -446,36 +369,50 @@ class _EscortHomeState extends State<EscortHome> {
                 onConfirmContinue: () => _handlePinSubmission(endEscortOnSafe: false),
                 onConfirmEndEscort: () => _handlePinSubmission(endEscortOnSafe: true),
                 onExtendFiveMinutes: _extendEscortFiveMinutes,
+              )
+            else if (_active)
+              _activeWalkCard()
+            else
+              _startWalkCard(startLabel),
+            if (idle && _message.isNotEmpty) ...<Widget>[
+              const SizedBox(height: 12),
+              Text(
+                _message,
+                key: const Key('status_message_text'),
+                style: const TextStyle(color: MokgosiColors.inkMuted, fontSize: 14, height: 1.4),
               ),
-            const SizedBox(height: 18),
-            FilledButton.tonalIcon(
+            ],
+            if (idle) ...<Widget>[
+              const SizedBox(height: 16),
+              _situationCard(),
+            ],
+            const SizedBox(height: 20),
+            FilledButton(
               key: const Key('send_sos_button'),
-              onPressed: _sending
-                  ? null
-                  : () => _send('EXPLICIT_SOS', impactG: _telemetry.peakGForce),
-              icon: const Icon(Icons.sos, color: Colors.redAccent),
-              label: const Padding(
-                padding: EdgeInsets.all(12),
-                child: Text('SEND SOS'),
+              style: FilledButton.styleFrom(
+                backgroundColor: MokgosiColors.danger,
+                minimumSize: const Size.fromHeight(56),
               ),
+              onPressed: _sending ? null : () => _send('EXPLICIT_SOS', impactG: _telemetry.peakGForce),
+              child: Text(_sending ? 'Sending…' : 'Send SOS', style: const TextStyle(fontSize: 17)),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 10),
             Text(
               _trustedContactSummary(),
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white60, fontSize: 13),
+              style: const TextStyle(color: MokgosiColors.inkMuted, fontSize: 13),
             ),
             if (_activeIncidentId != null) ...<Widget>[
-              const SizedBox(height: 6),
+              const SizedBox(height: 4),
               Text(
-                'Active Incident Ref: ${_activeIncidentId!.substring(0, 8)}',
+                'Alert reference ${_activeIncidentId!.substring(0, 8)}',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Color(0xff55d9ad), fontSize: 12),
+                style: const TextStyle(color: MokgosiColors.inkFaint, fontSize: 12),
               ),
             ],
             if (_showDemoDrawer) ...<Widget>[
-              const SizedBox(height: 18),
-              _buildDemoRehearsalPanel(),
+              const SizedBox(height: 20),
+              _demoTools(),
             ],
           ],
         ),
@@ -483,38 +420,115 @@ class _EscortHomeState extends State<EscortHome> {
     );
   }
 
-  Widget _buildCategoryAndConsentCard() {
-    final isGbv = _profile.category == 'GBV_DOMESTIC';
+  Widget _queueNotice() {
+    final waiting = _queuedCount == 1 ? '1 alert is' : '$_queuedCount alerts are';
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
+      decoration: BoxDecoration(
+        color: MokgosiColors.warningSoft,
+        borderRadius: BorderRadius.circular(10),
+        border: const Border(left: BorderSide(color: Color(0xFFD9A441), width: 3)),
+      ),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              '$waiting waiting for a connection and will send on their own.',
+              style: const TextStyle(color: MokgosiColors.warning, fontSize: 14),
+            ),
+          ),
+          TextButton(
+            key: const Key('flush_offline_queue_button'),
+            onPressed: _flushOfflineQueueNow,
+            child: const Text('Try now'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _startWalkCard(String startLabel) {
     return Card(
-      color: const Color(0xff0f2033),
-      margin: const EdgeInsets.only(bottom: 18),
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
+            const Text('Walking somewhere?', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 6),
             const Text(
-              'PROTECTION CONTEXT & SURVIVOR CONSENT',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                color: Color(0xff55d9ad),
-                letterSpacing: 0.6,
+              'Start a timed walk. If you don’t check in before it ends, your trusted contact gets an alert with your location.',
+              style: TextStyle(color: MokgosiColors.inkMuted, fontSize: 15, height: 1.4),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              key: const Key('start_escort_button'),
+              onPressed: _sending ? null : () => _startEscort(),
+              icon: const Icon(Icons.directions_walk),
+              label: Text(startLabel),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _activeWalkCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            const Text('Walk in progress', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 2),
+            Text(
+              _clock(_seconds),
+              style: const TextStyle(
+                fontSize: 56,
+                fontWeight: FontWeight.w300,
+                fontFeatures: <FontFeature>[FontFeature.tabularFigures()],
               ),
             ),
-            const SizedBox(height: 10),
+            const Text('Check in before the timer runs out.', style: TextStyle(color: MokgosiColors.inkMuted)),
+            const SizedBox(height: 12),
+            LinearProgressIndicator(
+              value: (1 - (_seconds / _activeEscortTotalSeconds)).clamp(0.0, 1.0),
+              minHeight: 6,
+              borderRadius: BorderRadius.circular(3),
+            ),
+            const SizedBox(height: 16),
+            OutlinedButton(
+              key: const Key('checkin_now_button'),
+              onPressed: _showCheckin,
+              child: const Text('Check in now'),
+            ),
+            const SizedBox(height: 4),
+            TextButton(
+              key: const Key('request_end_escort_button'),
+              onPressed: _showCheckin,
+              child: const Text('I’ve arrived'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _situationCard() {
+    final atHome = _profile.category == 'GBV_DOMESTIC';
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            const SectionLabel('This is about'),
             SegmentedButton<String>(
+              showSelectedIcon: false,
               segments: const <ButtonSegment<String>>[
-                ButtonSegment<String>(
-                  value: 'PERSONAL_SAFETY',
-                  label: Text('Commute / Safety', style: TextStyle(fontSize: 12)),
-                  icon: Icon(Icons.directions_walk, size: 16),
-                ),
-                ButtonSegment<String>(
-                  value: 'GBV_DOMESTIC',
-                  label: Text('Unsafe at Home / Partner', style: TextStyle(fontSize: 12)),
-                  icon: Icon(Icons.privacy_tip_outlined, size: 16),
-                ),
+                ButtonSegment<String>(value: 'PERSONAL_SAFETY', label: Text('Out and about')),
+                ButtonSegment<String>(value: 'GBV_DOMESTIC', label: Text('At home')),
               ],
               selected: <String>{_profile.category},
               onSelectionChanged: (selection) {
@@ -522,42 +536,28 @@ class _EscortHomeState extends State<EscortHome> {
                 _persistProfile();
               },
             ),
-            if (isGbv) ...<Widget>[
-              const SizedBox(height: 8),
-              const Text(
-                'GBV / Domestic mode flags responder console for covert handling (no callbacks to device on duress).',
-                style: TextStyle(color: Color(0xffffc470), fontSize: 11),
-              ),
+            if (atHome) ...<Widget>[
+              const SizedBox(height: 10),
+              const InfoNote('Responders will treat your alerts as silent and won’t call this phone.'),
             ],
-            const SizedBox(height: 8),
-            CheckboxListTile(
-              dense: true,
+            const SizedBox(height: 4),
+            SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text(
-                'Share live GPS & match authorized 150m cameras on alert',
-                style: TextStyle(fontSize: 12),
-              ),
+              title: const Text('Share my location when I raise an alert'),
               value: _profile.consentLocation,
               onChanged: (v) {
-                setState(() => _profile.consentLocation = v ?? true);
+                setState(() => _profile.consentLocation = v);
                 _persistProfile();
               },
             ),
-            CheckboxListTile(
+            SwitchListTile(
               key: const Key('consent_audio_checkbox'),
-              dense: true,
               contentPadding: EdgeInsets.zero,
-              title: const Text(
-                'Consent to 15s post-alert acoustic triage clip (72h retention)',
-                style: TextStyle(fontSize: 12),
-              ),
-              subtitle: const Text(
-                'Optional escalation aid only; declining never blocks your SOS.',
-                style: TextStyle(fontSize: 11, color: Colors.white54),
-              ),
+              title: const Text('Record 15 seconds of sound after an alert'),
+              subtitle: const Text('Optional. The alert goes out either way. Kept for 72 hours.'),
               value: _profile.consentAudio,
               onChanged: (v) {
-                setState(() => _profile.consentAudio = v ?? false);
+                setState(() => _profile.consentAudio = v);
                 _persistProfile();
               },
             ),
@@ -567,57 +567,34 @@ class _EscortHomeState extends State<EscortHome> {
     );
   }
 
-  Widget _buildDemoRehearsalPanel() {
+  Widget _demoTools() {
     return Card(
-      color: const Color(0xff132436),
+      color: MokgosiColors.surfaceMuted,
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            const Text(
-              'DEMO & FAULT-TOLERANCE REHEARSAL CONTROLS',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.bold,
-                color: Color(0xff55d9ad),
-              ),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
+            const SectionLabel('Demo tools'),
+            OutlinedButton(
               key: const Key('simulate_impact_button'),
               onPressed: _simulateImpactTrigger,
-              icon: const Icon(Icons.vibration, size: 18),
-              label: Text(
-                'Simulate Physical Impact (4.2g · Peak ${_telemetry.peakGForce.toStringAsFixed(1)}g)',
-              ),
+              child: const Text('Simulate a hard impact (4.2 g)'),
             ),
-            const SizedBox(height: 8),
             SwitchListTile(
               key: const Key('simulate_offline_switch'),
-              dense: true,
               contentPadding: EdgeInsets.zero,
-              title: const Text(
-                'Simulate Airplane / Offline Mode',
-                style: TextStyle(fontSize: 12),
-              ),
-              subtitle: const Text(
-                'Queues SOS with idempotency UUID & fires SMS fallback',
-                style: TextStyle(fontSize: 11, color: Colors.white54),
-              ),
+              title: const Text('Pretend there’s no signal'),
+              subtitle: const Text('Alerts queue up and the SMS app opens as a fallback.'),
               value: IncidentApi.simulateOfflineMode,
               onChanged: (val) {
                 setState(() => IncidentApi.simulateOfflineMode = val);
-                if (!val) {
-                  _flushOfflineQueueNow();
-                }
+                if (!val) _flushOfflineQueueNow();
               },
             ),
-            const SizedBox(height: 4),
             const Text(
-              'DEMO ONLY PINs: Safe 2580 · Covert Duress 0852',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white54, fontSize: 11),
+              'Demo PINs: 2580 to check in, 0852 is the duress PIN.',
+              style: TextStyle(color: MokgosiColors.inkFaint, fontSize: 12),
             ),
           ],
         ),

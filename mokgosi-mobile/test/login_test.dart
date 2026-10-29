@@ -27,26 +27,28 @@ void main() {
       ),
     );
 
-    expect(find.text('MOKGOSI'), findsOneWidget);
+    expect(find.text('Mokgosi'), findsOneWidget);
     expect(find.text('Your call for help. A connected response.'), findsOneWidget);
     expect(find.byKey(const Key('tab_sign_in')), findsOneWidget);
     expect(find.byKey(const Key('btn_sign_in_submit')), findsOneWidget);
-    expect(find.text('Create Account'), findsOneWidget);
+    expect(find.text('Create account'), findsOneWidget);
     expect(find.byKey(const Key('login_email_field')), findsOneWidget);
     expect(find.byKey(const Key('login_password_field')), findsOneWidget);
     expect(find.byKey(const Key('btn_guest_access')), findsOneWidget);
-    expect(find.text('Quick Emergency Access (No Account)'), findsOneWidget);
+    expect(find.text('Continue without an account'), findsOneWidget);
+    // Demo shortcuts are not shown outside demo builds.
+    expect(find.text('Fill in demo details'), findsNothing);
   });
 
-  testWidgets('LoginScreen demo auto-fill populates verified citizen credentials', (tester) async {
+  testWidgets('LoginScreen demo auto-fill populates the demo credentials', (tester) async {
     configurePhoneViewport(tester);
     await tester.pumpWidget(
       const MaterialApp(
-        home: LoginScreen(),
+        home: LoginScreen(showDemoFill: true),
       ),
     );
 
-    await tester.tap(find.text('Demo Auto-fill'));
+    await tester.tap(find.text('Fill in demo details'));
     await tester.pump();
 
     final emailFinder = find.byKey(const Key('login_email_field'));
@@ -65,7 +67,7 @@ void main() {
     await tester.tap(find.byKey(const Key('btn_sign_in_submit')));
     await tester.pump();
 
-    expect(find.text('Please enter your email, phone, or citizen ID.'), findsOneWidget);
+    expect(find.text('Enter your email address.'), findsOneWidget);
   });
 
   testWidgets('LoginScreen sign-in persists auth_user_id to PlatformStore and triggers onAuthenticated', (tester) async {

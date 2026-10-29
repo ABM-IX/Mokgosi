@@ -139,7 +139,8 @@ class MotionTelemetry {
   /// Resolves the best available GPS fix immediately without blocking an SOS.
   /// If [pinToGaboroneDemoCbd] is true or location permission is denied, returns
   /// the Gaborone CBD camera-mesh coordinates (-24.6560, 25.9090).
-  Future<GeoPointFix> resolveCurrentFix({required bool pinToGaboroneDemoCbd}) async {
+  /// Pass [requestPermission] false for silent alerts: a permission dialog would give them away.
+  Future<GeoPointFix> resolveCurrentFix({required bool pinToGaboroneDemoCbd, bool requestPermission = true}) async {
     final nowUtc = DateTime.now().toUtc().toIso8601String();
     if (pinToGaboroneDemoCbd) {
       _lastKnownFix = GeoPointFix(
@@ -156,7 +157,7 @@ class MotionTelemetry {
         return _lastKnownFix;
       }
       var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
+      if (permission == LocationPermission.denied && requestPermission) {
         permission = await Geolocator.requestPermission();
       }
       if (permission == LocationPermission.denied ||

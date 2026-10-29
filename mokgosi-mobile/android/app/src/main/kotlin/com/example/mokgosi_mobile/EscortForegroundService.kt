@@ -28,8 +28,8 @@ class EscortForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val title = intent?.getStringExtra(EXTRA_TITLE) ?: "Mokgosi Escort Active"
-        val body = intent?.getStringExtra(EXTRA_BODY) ?: "Monitoring route & motion sensors."
+        val title = intent?.getStringExtra(EXTRA_TITLE) ?: "Walk in progress"
+        val body = intent?.getStringExtra(EXTRA_BODY) ?: "Tap to check in or end the walk."
         val wantMic = intent?.getBooleanExtra(EXTRA_INCLUDE_MIC, false) ?: false
 
         val launchIntent = Intent(this, MainActivity::class.java).apply {
@@ -81,10 +81,10 @@ class EscortForegroundService : Service() {
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Mokgosi Active Escort",
+                "Walk timer",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Persistent escort session monitoring"
+                description = "Shows while a walk is running"
                 setShowBadge(false)
             }
             manager.createNotificationChannel(channel)

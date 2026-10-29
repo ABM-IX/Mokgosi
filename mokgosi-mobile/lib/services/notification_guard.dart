@@ -46,8 +46,8 @@ class NotificationGuard {
   Future<void> startEscortForegroundService({required bool includeMicrophone}) async {
     try {
       await _platform.invokeMethod<bool>('startForegroundEscort', <String, dynamic>{
-        'title': 'Mokgosi Escort Active',
-        'body': 'Monitoring route & motion sensors.',
+        'title': 'Walk in progress',
+        'body': 'Tap to check in or end the walk.',
         'includeMicrophone': includeMicrophone,
       });
     } catch (_) {
@@ -70,8 +70,8 @@ class NotificationGuard {
       final vibrationPattern = Int64List.fromList(<int>[0, 450, 200, 450, 200, 700]);
       final androidDetails = AndroidNotificationDetails(
         checkinChannelId,
-        'Mokgosi Urgent Check-In',
-        channelDescription: 'Full-screen safety check-in prompt over lock screen',
+        'Check-in reminders',
+        channelDescription: 'Asks you to check in during a walk',
         importance: Importance.max,
         priority: Priority.max,
         fullScreenIntent: true,
@@ -83,11 +83,11 @@ class NotificationGuard {
         enableVibration: true,
       );
       final subtitle = impactG != null && impactG >= 3.5
-          ? 'Impact detected (${impactG.toStringAsFixed(1)}g). Confirm you are safe or extend your timer.'
-          : 'Confirm you are safe or extend your timer.';
+          ? 'We felt a hard impact (${impactG.toStringAsFixed(1)} g). Confirm you are OK or add more time.'
+          : 'Confirm you are OK or add more time.';
       await _plugin.show(
         checkinNotificationId,
-        'MOKGOSI CHECK-IN (${secondsRemaining}s)',
+        'Check in · ${secondsRemaining}s left',
         subtitle,
         NotificationDetails(android: androidDetails),
         payload: 'CHECKIN_PROMPT',

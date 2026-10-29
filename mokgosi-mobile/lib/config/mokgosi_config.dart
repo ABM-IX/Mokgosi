@@ -127,7 +127,7 @@ class SafetyProfile {
     this.category = 'PERSONAL_SAFETY',
     this.consentLocation = true,
     this.consentAudio = false,
-    this.pinToGaboroneDemoCbd = true,
+    this.pinToGaboroneDemoCbd = MokgosiConfig.demoMode,
   }) : trustedContactPhone =
             trustedContactPhone ?? MokgosiConfig.trustedContactPhone;
 

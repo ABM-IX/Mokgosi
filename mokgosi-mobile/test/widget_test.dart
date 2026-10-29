@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -7,6 +8,13 @@ import 'package:mokgosi_mobile/main.dart';
 
 void main() {
   setUp(() async {
+    // Location services "off": the real geolocator plugin cannot answer inside a test.
+    for (final channel in const ['flutter.baseflow.com/geolocator', 'flutter.baseflow.com/geolocator_android']) {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        MethodChannel(channel),
+        (call) async => call.method == 'isLocationServiceEnabled' ? false : null,
+      );
+    }
     await PlatformStore.clear();
     IncidentApi.simulateOfflineMode = false;
     IncidentApi.smsFallbackCount = 0;
@@ -14,8 +22,8 @@ void main() {
 
   testWidgets('escort home renders the start action and hides demo PIN hints by default', (tester) async {
     await tester.pumpWidget(const MokgosiApp());
-    expect(find.text('MOKGOSI'), findsOneWidget);
-    expect(find.text('START 30 SECOND ESCORT'), findsOneWidget);
+    expect(find.text('Mokgosi'), findsOneWidget);
+    expect(find.text('Start a 30-second walk'), findsOneWidget);
     // Covert invariant: no exposed PIN hints or fake phone numbers on default screen.
     expect(find.textContaining('2580'), findsNothing);
     expect(find.textContaining('0852'), findsNothing);
@@ -82,7 +90,7 @@ void main() {
     expect(offlineOutcome.delivered, isFalse);
     expect(offlineOutcome.queuedOffline, isTrue);
     expect(offlineOutcome.smsFallbackFired, isTrue);
-    expect(offlineOutcome.userMessage, contains('Queued'));
+    expect(offlineOutcome.userMessage, contains('queued'));
     expect(sentRequests, isEmpty);
 
     final queued = await IncidentApi.getQueuedEvents();
@@ -132,18 +140,20 @@ void main() {
     // Start escort and open check-in.
     await tester.tap(find.byKey(const Key('start_escort_button')));
     await tester.pump();
-    expect(find.text('ESCORT ACTIVE'), findsOneWidget);
+    expect(find.text('Walk in progress'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('checkin_now_button')));
     await tester.pump();
     expect(find.byKey(const Key('checkin_pin_field')), findsOneWidget);
+    // Someone may be watching: the check-in card must not hint that a duress PIN exists.
+    expect(find.textContaining('uress'), findsNothing);
 
     // Enter Safe PIN 2580 and end escort.
     await tester.enterText(find.byKey(const Key('checkin_pin_field')), '2580');
     await tester.tap(find.byKey(const Key('end_escort_pin_button')));
     await tester.pump();
-    expect(find.text('YOU ARE IN CONTROL'), findsOneWidget);
-    expect(find.textContaining('Home safe confirmed'), findsOneWidget);
+    expect(find.text('Walking somewhere?'), findsOneWidget);
+    expect(find.textContaining('Walk ended'), findsOneWidget);
 
     // Start again, open check-in, and enter Duress PIN 0852.
     await tester.tap(find.byKey(const Key('start_escort_button')));
@@ -203,7 +213,7 @@ void main() {
     await tester.tap(find.byKey(const Key('simulate_impact_button')));
     await tester.pump();
 
-    expect(find.textContaining('Physical impact detected (4.2g)'), findsOneWidget);
+    expect(find.textContaining('We felt a hard impact (4.2 g)'), findsOneWidget);
 
     // Advance 15 seconds so the check-in times out.
     for (var i = 0; i < 15; i++) {

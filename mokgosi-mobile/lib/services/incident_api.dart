@@ -110,8 +110,8 @@ class IncidentApi {
         notificationState: smsFired ? 'SMS_FALLBACK_DISPATCHED' : 'QUEUED_OFFLINE',
         notificationMode: 'OFFLINE_QUEUE',
         userMessage: smsFired
-            ? 'Queued — no signal. Will send automatically when online. Device SMS fallback opened.'
-            : 'Queued — no signal. Will send automatically when connectivity returns.',
+            ? 'No signal. Your alert is queued and will send by itself. Your SMS app opened so you can text your contact.'
+            : 'No signal. Your alert is queued and will send by itself when you are back online.',
       );
     }
 
@@ -127,13 +127,13 @@ class IncidentApi {
       final contactQueued =
           notificationState == 'QUEUED' || notificationState == 'ALREADY_QUEUED';
       final deliveryLabel = notificationMode == 'DEMO_ONLY'
-          ? 'DEMO: trusted-person message only logged'
+          ? 'Your trusted contact was not texted, because SMS is not set up yet'
           : contactQueued
-              ? 'Trusted-person notification queued'
-              : 'Trusted-person contact not configured';
+              ? 'Your trusted contact is being texted'
+              : 'No trusted contact is set up';
       final message = persisted
-          ? 'Incident recorded. $deliveryLabel.'
-          : 'Incident not recorded ($persistenceState). $deliveryLabel.';
+          ? 'Responders have your alert. $deliveryLabel.'
+          : 'The server got your alert but could not save it. $deliveryLabel.';
 
       return AlertDispatchOutcome(
         delivered: true,
@@ -166,8 +166,8 @@ class IncidentApi {
         notificationState: smsFired ? 'SMS_FALLBACK_DISPATCHED' : 'QUEUED_OFFLINE',
         notificationMode: 'OFFLINE_QUEUE',
         userMessage: smsFired
-            ? 'Queued — no signal. Retrying automatically; SMS fallback triggered.'
-            : 'Queued — connection unavailable. Retrying automatically with idempotency key.',
+            ? 'Could not reach the server. Your alert is queued and keeps retrying. Your SMS app opened so you can text your contact.'
+            : 'Could not reach the server. Your alert is queued and keeps retrying.',
       );
     }
   }
@@ -219,7 +219,7 @@ class IncidentApi {
         'MOKGOSI ALERT ($trigger): Data offline. Latest coordinates: $mapsUrl';
     smsFallbackCount += 1;
     if (targetPhone.isEmpty) {
-      return true;
+      return false; // nobody to text, so nothing opened
     }
     try {
       await _platform.invokeMethod<dynamic>('sendFallbackSms', <String, dynamic>{

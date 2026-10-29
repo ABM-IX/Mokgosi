@@ -1,8 +1,27 @@
 import 'package:flutter/material.dart';
 import '../config/l10n.dart';
+import '../config/theme.dart';
 import '../services/incident_api.dart';
+import '../widgets/common.dart';
 import 'calculator_disguise_screen.dart';
 
+const _filters = <String, String>{
+  'ALL': 'All',
+  'POLICE': 'Police',
+  'SHELTER': 'Shelter',
+  'COUNSELLING': 'Counselling',
+  'LEGAL': 'Legal help',
+};
+const _typeLabels = <String, String>{
+  'POLICE': 'Police',
+  'GBV_DESK': 'GBV desk',
+  'SHELTER': 'Shelter',
+  'COUNSELLING': 'Counselling',
+  'LEGAL': 'Legal help',
+  'HELPLINE': 'Helpline',
+};
+
+/// Support services, listed only once they have confirmed their details. No number is ever made up.
 class GetHelpScreen extends StatefulWidget {
   const GetHelpScreen({super.key});
 
@@ -23,9 +42,7 @@ class _GetHelpScreenState extends State<GetHelpScreen> {
 
   Future<void> _loadReferrals() async {
     setState(() => _isLoading = true);
-    final data = await IncidentApi.fetchVerifiedReferrals(
-      type: _selectedType == 'ALL' ? null : _selectedType,
-    );
+    final data = await IncidentApi.fetchVerifiedReferrals(type: _selectedType == 'ALL' ? null : _selectedType);
     if (mounted) {
       setState(() {
         _referrals = data;
@@ -44,56 +61,47 @@ class _GetHelpScreenState extends State<GetHelpScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xff0d1117),
       appBar: AppBar(
-        backgroundColor: const Color(0xff161b22),
-        title: Text(MokgosiL10n.get('get_help'), style: const TextStyle(fontSize: 18)),
+        title: Text(MokgosiL10n.get('get_help')),
         actions: [
-          IconButton(
-            key: const Key('get_help_quick_exit'),
-            tooltip: MokgosiL10n.get('quick_exit'),
-            icon: const Icon(Icons.close_fullscreen, color: Color(0xfffc8181)),
-            onPressed: _quickExit,
-          ),
+          HideAction(key: const Key('get_help_quick_exit'), label: MokgosiL10n.get('quick_exit'), onPressed: _quickExit),
         ],
       ),
       body: SafeArea(
         child: Column(
           children: [
-            // Filter bar
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              color: const Color(0xff161b22),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    _filterChip('ALL', 'All Services'),
-                    const SizedBox(width: 8),
-                    _filterChip('POLICE', 'Police GBV Desk'),
-                    const SizedBox(width: 8),
-                    _filterChip('SHELTER', 'Emergency Shelter'),
-                    const SizedBox(width: 8),
-                    _filterChip('COUNSELLING', 'Counselling'),
-                    const SizedBox(width: 8),
-                    _filterChip('LEGAL', 'Legal Aid'),
-                  ],
-                ),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              child: Row(
+                children: _filters.entries
+                    .map((e) => Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(e.value),
+                            selected: _selectedType == e.key,
+                            showCheckmark: false,
+                            onSelected: (selected) {
+                              if (selected) {
+                                setState(() => _selectedType = e.key);
+                                _loadReferrals();
+                              }
+                            },
+                          ),
+                        ))
+                    .toList(),
               ),
             ),
-            // Content
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : _referrals.isEmpty
-                      ? _buildEmptyVerifiedState()
-                      : ListView.builder(
-                          padding: const EdgeInsets.all(16),
+                      ? _buildNotYetState()
+                      : ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
                           itemCount: _referrals.length,
-                          itemBuilder: (ctx, idx) {
-                            final ref = _referrals[idx];
-                            return _buildReferralCard(ref);
-                          },
+                          separatorBuilder: (_, __) => const SizedBox(height: 10),
+                          itemBuilder: (ctx, idx) => _buildReferralCard(_referrals[idx]),
                         ),
             ),
           ],
@@ -102,162 +110,61 @@ class _GetHelpScreenState extends State<GetHelpScreen> {
     );
   }
 
-  Widget _filterChip(String type, String label) {
-    final isSelected = _selectedType == type;
-    return ChoiceChip(
-      label: Text(label, style: TextStyle(color: isSelected ? Colors.white : Colors.white70, fontSize: 12)),
-      selected: isSelected,
-      selectedColor: const Color(0xff319795),
-      backgroundColor: const Color(0xff21262d),
-      onSelected: (selected) {
-        if (selected) {
-          setState(() => _selectedType = type);
-          _loadReferrals();
-        }
-      },
-    );
-  }
-
-  Widget _buildEmptyVerifiedState() {
-    return Padding(
-      padding: const EdgeInsets.all(24.0),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.verified_user_outlined, size: 54, color: Color(0xff718096)),
-          const SizedBox(height: 16),
-          Text(
-            MokgosiL10n.get('referrals_verifying_notice'),
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            MokgosiL10n.get('referrals_verifying_body'),
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Color(0xffa0aec0),
-              fontSize: 13,
-              height: 1.5,
-            ),
-          ),
-          const SizedBox(height: 20),
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0xff161b22),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: const Color(0xff30363d)),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.info_outline, color: Color(0xff4fd1c5), size: 20),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'No fake contact numbers are ever shown. Partner directory updates will appear automatically once formally verified with service providers.',
-                    style: TextStyle(color: Color(0xffcbd5e0), fontSize: 12, height: 1.4),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+  Widget _buildNotYetState() {
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      children: [
+        Text(
+          MokgosiL10n.get('referrals_verifying_notice'),
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          MokgosiL10n.get('referrals_verifying_body'),
+          style: const TextStyle(color: MokgosiColors.inkMuted, height: 1.5),
+        ),
+        const SizedBox(height: 16),
+        const InfoNote(
+          'No phone numbers are shown until the service itself confirms them. If you are in danger right now, contact the police.',
+        ),
+      ],
     );
   }
 
   Widget _buildReferralCard(Map<String, dynamic> item) {
-    final name = item['name'] ?? 'Support Service';
-    final type = item['type'] ?? 'SUPPORT';
-    final hours = item['hours'] ?? 'Hours unlisted';
-    final phone = item['phone'];
-    final languages = (item['languages'] as List?)?.join(', ') ?? 'English, Setswana';
-
+    final name = item['name']?.toString() ?? 'Support service';
+    final type = _typeLabels[item['type']] ?? 'Support';
+    final hours = item['hours']?.toString();
+    final phone = item['phone']?.toString();
+    final languages = (item['languages'] as List?)?.map((l) => l == 'tn' ? 'Setswana' : 'English').join(', ');
     return Card(
-      color: const Color(0xff161b22),
-      margin: const EdgeInsets.only(bottom: 12),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: const BorderSide(color: Color(0xff30363d)),
-      ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(
-                    name,
-                    style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0xff234e52),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    type,
-                    style: const TextStyle(color: Color(0xff81e6d9), fontSize: 10, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                const Icon(Icons.access_time, size: 14, color: Color(0xffa0aec0)),
-                const SizedBox(width: 6),
-                Text(hours, style: const TextStyle(color: Color(0xffa0aec0), fontSize: 12)),
-              ],
-            ),
+            Text(name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
             const SizedBox(height: 4),
-            Row(
-              children: [
-                const Icon(Icons.language, size: 14, color: Color(0xffa0aec0)),
-                const SizedBox(width: 6),
-                Text(languages, style: const TextStyle(color: Color(0xffa0aec0), fontSize: 12)),
-              ],
+            Text(
+              [type, if (hours != null && hours.isNotEmpty) hours, if (languages != null) languages].join(' · '),
+              style: const TextStyle(color: MokgosiColors.inkMuted, fontSize: 13),
             ),
             const SizedBox(height: 12),
-            if (phone != null && phone.toString().isNotEmpty)
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xff319795),
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size.fromHeight(38),
+            if (phone != null && phone.isNotEmpty)
+              OutlinedButton.icon(
+                onPressed: () => showDialog<void>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: Text(name),
+                    content: SelectableText(formatPhone(phone), style: const TextStyle(fontSize: 18)),
+                    actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close'))],
+                  ),
                 ),
-                onPressed: () {
-                  // In demo, shows dialog with confirmed phone number
-                  showDialog<void>(
-                    context: context,
-                    builder: (ctx) => AlertDialog(
-                      backgroundColor: const Color(0xff1a202c),
-                      title: Text('Call $name?'),
-                      content: Text('Dial verified number: $phone'),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
-                      ],
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.call, size: 16),
-                label: Text('Call $phone'),
+                icon: const Icon(Icons.call_outlined, size: 18),
+                label: Text(formatPhone(phone)),
               )
             else
-              const Text(
-                'Phone number pending official verification',
-                style: TextStyle(color: Color(0xffe2e8f0), fontSize: 12, fontStyle: FontStyle.italic),
-              ),
+              const Text('Number not confirmed yet', style: TextStyle(color: MokgosiColors.inkFaint, fontSize: 13)),
           ],
         ),
       ),

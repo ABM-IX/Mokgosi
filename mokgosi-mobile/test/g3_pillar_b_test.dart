@@ -17,6 +17,13 @@ void main() {
         .setMockMethodCallHandler(const MethodChannel('mokgosi/platform'), (call) async {
       return null;
     });
+    // Location services "off": the real geolocator plugin cannot answer inside a test.
+    for (final channel in const ['flutter.baseflow.com/geolocator', 'flutter.baseflow.com/geolocator_android']) {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        MethodChannel(channel),
+        (call) async => call.method == 'isLocationServiceEnabled' ? false : null,
+      );
+    }
 
     // Provide default fast MockClient for all test endpoints
     IncidentApi.httpClient = MockClient((request) async {
@@ -88,6 +95,36 @@ void main() {
       // No safety/Mokgosi UI exposed
       expect(find.textContaining('Mokgosi'), findsNothing);
       expect(find.textContaining('SOS'), findsNothing);
+    });
+
+    testWidgets('Calculator chains operations and follows operator precedence', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(const MaterialApp(home: CalculatorDisguiseScreen()));
+      Future<void> press(List<String> keys) async {
+        for (final key in keys) {
+          await tester.tap(find.byKey(Key('calc_btn_$key')));
+          await tester.pump();
+        }
+      }
+
+      // The keypad also has a "9" key, so read the display itself.
+      String display() => tester.widget<Text>(find.byKey(const Key('calculator_display'))).data!;
+
+      // 2 + 3 + 4 = 9 (chained operations used to drop the first operand)
+      await press(['2', 'add', '3', 'add', '4', 'equals']);
+      expect(display(), '9');
+      // 2 + 3 × 4 = 14
+      await press(['clear', '2', 'add', '3', 'mult', '4', 'equals']);
+      expect(display(), '14');
+      // 7 ÷ 2 = 3.5, and dividing by zero shows an error instead of a number
+      await press(['clear', '7', 'div', '2', 'equals']);
+      expect(display(), '3.5');
+      await press(['clear', '5', 'div', '0', 'equals']);
+      expect(display(), 'Error');
     });
 
     testWidgets('Safe PIN 2580 + = unlocks AppHomeScreen', (tester) async {
@@ -162,6 +199,7 @@ void main() {
 
       // Critical Covert Invariant: Remains on calculator, no alert text shown
       expect(find.byType(CalculatorDisguiseScreen), findsOneWidget);
+      expect(find.text('852'), findsOneWidget); // what any calculator shows for 0852 =
       expect(find.textContaining('Mokgosi'), findsNothing);
       expect(find.textContaining('COVERT'), findsNothing);
       expect(find.textContaining('Alert sent'), findsNothing);
@@ -218,13 +256,13 @@ Future<void> pumpUntilNoLoader(WidgetTester tester, {int maxTicks = 25}) async {
         await pumpUntilNoLoader(tester);
       }
 
-      expect(find.text('Trusted Circle (5/5)'), findsOneWidget);
+      expect(find.text('5 of 5 added'), findsOneWidget);
       expect(find.text('Contact 1'), findsOneWidget);
 
       // Attempting 6th contact is blocked
       await tester.tap(find.byKey(const Key('add_contact_button')));
       await tester.pumpAndSettle();
-      expect(find.textContaining('Maximum 5 trusted contacts allowed'), findsOneWidget);
+      expect(find.textContaining('up to 5 trusted contacts'), findsOneWidget);
 
       // Quick exit clears navigation back to disguise
       await tester.tap(find.byKey(const Key('quick_exit_button')));
@@ -245,8 +283,8 @@ Future<void> pumpUntilNoLoader(WidgetTester tester, {int maxTicks = 25}) async {
       );
       await pumpUntilNoLoader(tester);
 
-      expect(find.textContaining('Support directory being verified'), findsOneWidget);
-      expect(find.textContaining('No fake contact numbers are ever shown'), findsOneWidget);
+      expect(find.textContaining('still confirming these services'), findsOneWidget);
+      expect(find.textContaining('No phone numbers are shown until the service itself confirms them'), findsOneWidget);
       // No fake contact numbers visible
       expect(find.textContaining('+267 71 000 000'), findsNothing);
       expect(find.textContaining('0800'), findsNothing);
@@ -271,15 +309,15 @@ Future<void> pumpUntilNoLoader(WidgetTester tester, {int maxTicks = 25}) async {
       );
       await pumpUntilNoLoader(tester);
 
-      expect(find.textContaining('Survivor-Owned Control'), findsOneWidget);
-      expect(find.textContaining('Audio Capture in Background (Default: OFF)'), findsOneWidget);
-      expect(find.textContaining('Responder Direct Contact (Default: OFF)'), findsOneWidget);
+      expect(find.textContaining('You decide what Mokgosi shares'), findsOneWidget);
+      expect(find.textContaining('Record sound after an alert'), findsOneWidget);
+      expect(find.textContaining('Let responders call this phone'), findsOneWidget);
 
       // Emergency purge test
       await tester.tap(find.byKey(const Key('purge_data_button')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
-      expect(find.text('Remove All Mokgosi Data?'), findsOneWidget);
+      expect(find.text('Remove everything?'), findsOneWidget);
 
       // Enter Safe PIN 2580 to confirm purge
       await tester.enterText(find.byKey(const Key('purge_pin_field')), '2580');
@@ -335,7 +373,8 @@ Future<void> pumpUntilNoLoader(WidgetTester tester, {int maxTicks = 25}) async {
       final outcome = await IncidentApi.trigger('SHAKE_SOS', category: 'GBV_DOMESTIC');
       expect(outcome.delivered, isFalse);
       expect(outcome.queuedOffline, isTrue);
-      expect(outcome.smsFallbackFired, isTrue);
+      // No trusted number is configured in tests, so no SMS app can open.
+      expect(outcome.smsFallbackFired, isFalse);
       expect(sentTriggers, isEmpty);
 
       // Network restored

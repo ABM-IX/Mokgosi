@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'config/mokgosi_config.dart';
+import 'config/theme.dart';
 import 'screens/app_home_screen.dart';
 import 'screens/escort_home.dart';
 import 'screens/login_screen.dart';
 
 export 'config/l10n.dart';
 export 'config/mokgosi_config.dart';
+export 'config/theme.dart';
 export 'screens/app_home_screen.dart';
 export 'screens/calculator_disguise_screen.dart';
 export 'screens/checkin_prompt.dart';
@@ -40,14 +42,7 @@ class MokgosiApp extends StatelessWidget {
     return MaterialApp(
       title: 'Mokgosi',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xff12a879),
-          brightness: Brightness.dark,
-        ),
-        scaffoldBackgroundColor: const Color(0xff081421),
-        useMaterial3: true,
-      ),
+      theme: buildMokgosiTheme(),
       home: home ?? (requireAuth ? const AuthGate() : const EscortHome()),
     );
   }
@@ -75,14 +70,7 @@ class _AuthGateState extends State<AuthGate> {
       future: _authFuture,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            backgroundColor: Color(0xff081421),
-            body: Center(
-              child: CircularProgressIndicator(
-                color: Color(0xff12a879),
-              ),
-            ),
-          );
+          return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
         final userId = snapshot.data;
         if (userId != null && userId.isNotEmpty) {

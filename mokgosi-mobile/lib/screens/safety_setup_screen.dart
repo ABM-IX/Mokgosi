@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import '../config/mokgosi_config.dart';
+import '../config/theme.dart';
 import '../services/incident_api.dart';
+import '../widgets/common.dart';
 import 'login_screen.dart';
 
-/// Trusted Person & PIN configuration screen with E.164 phone validation,
-/// salted SHA-256 PIN updates, and a survivor data-deletion action.
+/// Trusted contact for walks, the two PINs, walk length, and clearing this phone.
 class SafetySetupScreen extends StatefulWidget {
   const SafetySetupScreen({
     super.key,
@@ -30,7 +31,6 @@ class _SafetySetupScreenState extends State<SafetySetupScreen> {
   late bool _pinToGaboroneCbd;
   String? _errorMessage;
   String? _statusMessage;
-  String _currentUserId = 'MOKGOSI_DEMO_USER';
 
   @override
   void initState() {
@@ -41,14 +41,6 @@ class _SafetySetupScreenState extends State<SafetySetupScreen> {
     _duressPinController = TextEditingController();
     _durationSeconds = widget.profile.escortDurationSeconds;
     _pinToGaboroneCbd = widget.profile.pinToGaboroneDemoCbd;
-    _loadAuthInfo();
-  }
-
-  Future<void> _loadAuthInfo() async {
-    final uid = await PlatformStore.read('auth_user_id');
-    if (mounted && uid != null && uid.isNotEmpty) {
-      setState(() => _currentUserId = uid);
-    }
   }
 
   @override
@@ -65,11 +57,9 @@ class _SafetySetupScreenState extends State<SafetySetupScreen> {
       _errorMessage = null;
       _statusMessage = null;
     });
-    final phone = _phoneController.text.trim();
+    final phone = _phoneController.text.replaceAll(' ', '').trim();
     if (phone.isNotEmpty && !MokgosiConfig.isValidE164(phone)) {
-      setState(() {
-        _errorMessage = 'Trusted contact phone must use E.164 format (e.g. +2677xxxxxxx).';
-      });
+      setState(() => _errorMessage = 'Use the full number with the country code, like +267 71 234 567.');
       return;
     }
 
@@ -100,8 +90,7 @@ class _SafetySetupScreenState extends State<SafetySetupScreen> {
     setState(() {
       _nameController.clear();
       _phoneController.clear();
-      _statusMessage =
-          'Personal contact & session data cleared. Append-only forensic manifests remain sealed.';
+      _statusMessage = 'Cleared from this phone.';
     });
     widget.onSaved();
   }
@@ -109,143 +98,145 @@ class _SafetySetupScreenState extends State<SafetySetupScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Safety & Trusted Contact Setup')),
+      appBar: AppBar(title: const Text('Settings')),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
           children: <Widget>[
-            const Text(
-              'Trusted Person Escalation (Route 1)',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'Only configure a number after obtaining the contact’s consent.',
-              style: TextStyle(color: Colors.white70, fontSize: 13),
-            ),
-            const SizedBox(height: 14),
-            TextField(
-              key: const Key('trusted_name_field'),
-              controller: _nameController,
-              decoration: const InputDecoration(
-                labelText: 'Trusted Person Name',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              key: const Key('trusted_phone_field'),
-              controller: _phoneController,
-              keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
-                labelText: 'Trusted Person Phone (E.164)',
-                hintText: '+267...',
-                border: OutlineInputBorder(),
+            const SectionLabel('Trusted contact for walks'),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    const Text(
+                      'Ask them first. They get a text if you miss a check-in or raise an alert.',
+                      style: TextStyle(color: MokgosiColors.inkMuted, height: 1.4),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      key: const Key('trusted_name_field'),
+                      controller: _nameController,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: const InputDecoration(labelText: 'Name'),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      key: const Key('trusted_phone_field'),
+                      controller: _phoneController,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(labelText: 'Mobile number', hintText: '+267 7X XXX XXX'),
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 20),
-            const Text(
-              'Update Safe & Covert Duress PINs (4 digits, must differ)',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            const SizedBox(height: 10),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: TextField(
-                    key: const Key('setup_safe_pin_field'),
-                    controller: _safePinController,
-                    keyboardType: TextInputType.number,
-                    obscureText: true,
-                    maxLength: 4,
-                    decoration: const InputDecoration(
-                      labelText: 'New Safe PIN',
-                      counterText: '',
-                      border: OutlineInputBorder(),
+            const SectionLabel('PINs'),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    const Text(
+                      'Your safe PIN ends a walk or answers a check-in. Your duress PIN looks exactly the same on screen but quietly raises an alert. Use 4 digits, and make them different.',
+                      style: TextStyle(color: MokgosiColors.inkMuted, height: 1.4),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextField(
-                    key: const Key('setup_duress_pin_field'),
-                    controller: _duressPinController,
-                    keyboardType: TextInputType.number,
-                    obscureText: true,
-                    maxLength: 4,
-                    decoration: const InputDecoration(
-                      labelText: 'New Duress PIN',
-                      counterText: '',
-                      border: OutlineInputBorder(),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: TextField(
+                            key: const Key('setup_safe_pin_field'),
+                            controller: _safePinController,
+                            keyboardType: TextInputType.number,
+                            obscureText: true,
+                            maxLength: 4,
+                            decoration: const InputDecoration(labelText: 'New safe PIN', counterText: ''),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextField(
+                            key: const Key('setup_duress_pin_field'),
+                            controller: _duressPinController,
+                            keyboardType: TextInputType.number,
+                            obscureText: true,
+                            maxLength: 4,
+                            decoration: const InputDecoration(labelText: 'New duress PIN', counterText: ''),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
+                  ],
                 ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<int>(
-              initialValue: _durationSeconds,
-              decoration: const InputDecoration(
-                labelText: 'Escort Timer Duration',
-                border: OutlineInputBorder(),
               ),
-              items: const <DropdownMenuItem<int>>[
-                DropdownMenuItem(value: 30, child: Text('30 seconds (demo)')),
-                DropdownMenuItem(value: 300, child: Text('5 minutes')),
-                DropdownMenuItem(value: 900, child: Text('15 minutes')),
-              ],
-              onChanged: (val) {
-                if (val != null) setState(() => _durationSeconds = val);
-              },
             ),
-            const SizedBox(height: 12),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Pin GPS to Gaborone CBD Camera Mesh (Demo)'),
-              subtitle: const Text(
-                'Uses -24.6560, 25.9090 to match seeded 150m PostGIS cameras when indoor/emulator GPS is unavailable.',
+            const SizedBox(height: 20),
+            const SectionLabel('Walks'),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    DropdownButtonFormField<int>(
+                      initialValue: _durationSeconds,
+                      decoration: const InputDecoration(labelText: 'How long before the first check-in'),
+                      items: const <DropdownMenuItem<int>>[
+                        DropdownMenuItem(value: 30, child: Text('30 seconds (demo)')),
+                        DropdownMenuItem(value: 300, child: Text('5 minutes')),
+                        DropdownMenuItem(value: 900, child: Text('15 minutes')),
+                      ],
+                      onChanged: (val) {
+                        if (val != null) setState(() => _durationSeconds = val);
+                      },
+                    ),
+                    if (MokgosiConfig.demoMode)
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Use the Gaborone CBD test location'),
+                        subtitle: const Text('Demo only. Alerts report -24.6560, 25.9090 instead of your real location.'),
+                        value: _pinToGaboroneCbd,
+                        onChanged: (v) => setState(() => _pinToGaboroneCbd = v),
+                      ),
+                  ],
+                ),
               ),
-              value: _pinToGaboroneCbd,
-              onChanged: (v) => setState(() => _pinToGaboroneCbd = v),
             ),
             if (_errorMessage != null) ...<Widget>[
-              const SizedBox(height: 10),
-              Text(
-                _errorMessage!,
-                style: const TextStyle(color: Color(0xffff7676), fontWeight: FontWeight.w600),
-              ),
+              const SizedBox(height: 14),
+              InfoNote(_errorMessage!, tone: NoteTone.danger),
             ],
             if (_statusMessage != null) ...<Widget>[
-              const SizedBox(height: 10),
-              Text(
-                _statusMessage!,
-                style: const TextStyle(color: Color(0xff55d9ad)),
-              ),
+              const SizedBox(height: 14),
+              InfoNote(_statusMessage!),
             ],
-            const SizedBox(height: 18),
+            const SizedBox(height: 20),
             FilledButton(
               key: const Key('save_safety_setup_button'),
               onPressed: _save,
-              child: const Padding(
-                padding: EdgeInsets.all(12),
-                child: Text('SAVE CONFIGURATION'),
-              ),
+              child: const Text('Save'),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 32),
             const Divider(),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
+            const SizedBox(height: 16),
+            OutlinedButton(
               key: const Key('delete_personal_data_button'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: MokgosiColors.danger,
+                side: const BorderSide(color: MokgosiColors.danger),
+              ),
               onPressed: _deleteMyData,
-              icon: const Icon(Icons.delete_outline, color: Color(0xffff7676)),
-              label: const Text('Delete My Personal Data'),
+              child: const Text('Clear my details from this phone'),
             ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
+            const SizedBox(height: 10),
+            OutlinedButton(
               key: const Key('btn_sign_out'),
               onPressed: () => LoginScreen.signOut(context),
-              icon: const Icon(Icons.logout, color: Color(0xff94a3b8)),
-              label: Text('Sign Out ($_currentUserId)'),
+              child: const Text('Sign out'),
             ),
           ],
         ),
