@@ -1,135 +1,76 @@
 import React, { useEffect, useState } from 'react';
-import { fetchHotspots } from '../lib/api.js';
+import { DEMO_MODE, fetchHotspots } from '../lib/api.js';
+import { DEMO_HOTSPOTS } from '../lib/demoData.js';
+import { CATEGORY_LABEL, coords, humanize, label } from '../lib/labels.js';
 
-/**
- * Coarse Grid Hotspot & Spatial Risk View for Safer Communities.
- * Enforces strict k-anonymity: cells with fewer than 5 incidents are suppressed.
- * No individual user identifiers or fine-grained coordinates are ever exposed.
- */
-export default function HotspotsView({ onBackToLiveMap }) {
+/** Where incidents cluster, in ~500 m cells. Sparse cells never leave the server, so nobody can be singled out. */
+export default function HotspotsView() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
     let mounted = true;
-    (async () => {
-      try {
-        const res = await fetchHotspots();
-        if (mounted) {
-          setData(res);
-          setLoading(false);
-        }
-      } catch (err) {
-        if (mounted) {
-          setError(err.message || 'Failed to load community hotspot analytics.');
-          setLoading(false);
-        }
-      }
-    })();
+    fetchHotspots()
+      .then((res) => mounted && setData(res))
+      .catch(() => {
+        if (!mounted) return;
+        if (DEMO_MODE) setData(DEMO_HOTSPOTS);
+        else setError('Area trends could not be loaded. The server did not respond.');
+      })
+      .finally(() => mounted && setLoading(false));
     return () => {
       mounted = false;
     };
   }, []);
 
-  const hotspots = data?.hotspots || [];
+  const cells = data?.hotspots || [];
+  const total = cells.reduce((sum, cell) => sum + (cell.incident_count || 0), 0);
 
   return (
-    <section className="panel hotspots-view" aria-label="Community Safety Hotspots">
-      <div className="hotspots-header">
-        <div>
-          <h2>Community Safety Hotspots &amp; Spatial Density</h2>
-          <small>Aggregated ~500m coarse grid cells for municipal and community planning.</small>
-        </div>
-        {onBackToLiveMap && (
-          <button type="button" className="btn-outline" onClick={onBackToLiveMap}>
-            ← Back to Tactical Live Map
-          </button>
+    <section className="card" aria-label="Area trends">
+      <div className="card-head">
+        <h2>Area trends</h2>
+        {cells.length > 0 && (
+          <span className="card-note">
+            {total} incidents across {cells.length} areas
+          </span>
         )}
       </div>
-
-      <div className="hotspots-privacy-banner" role="note">
-        <strong>🔒 Strict K-Anonymity Privacy Guarantee</strong>
-        <p>
-          Cells with fewer than 5 incidents (or fewer than 10 GBV incidents) are automatically
-          suppressed by the analytics engine. Coordinates are rounded to ~500m coarse grid cells.
-          Zero survivor identifiers or private residential addresses are ever disclosed.
-        </p>
-      </div>
+      <p className="muted">
+        Locations are rounded to areas about 500 m across. Areas with fewer than 5 incidents (10 for
+        gender-based violence) are left out, so no person or home can be picked out.
+      </p>
 
       {loading ? (
-        <div className="hotspots-loading">Loading coarse grid analytics...</div>
+        <p className="faint">Loading…</p>
       ) : error ? (
-        <div className="notice" role="alert">
+        <p className="muted" role="alert">
           {error}
-        </div>
-      ) : hotspots.length === 0 ? (
-        <div className="empty-hotspots">
-          <p>
-            No coarse cells meet the minimum aggregation threshold (≥ 5 incidents) in this period.
-          </p>
-          <small>All sparse cells were safely suppressed to preserve individual privacy.</small>
-        </div>
+        </p>
+      ) : cells.length === 0 ? (
+        <p className="empty">No area has enough incidents to show yet.</p>
       ) : (
-        <div className="hotspots-grid">
-          <div className="hotspots-metrics-row">
-            <div className="metric-box">
-              <span className="metric-title">Aggregated Grid Cells</span>
-              <strong className="metric-number">{hotspots.length}</strong>
-            </div>
-            <div className="metric-box">
-              <span className="metric-title">Total Aggregated Incidents</span>
-              <strong className="metric-number">
-                {hotspots.reduce((sum, h) => sum + (h.count || 0), 0)}
-              </strong>
-            </div>
-            <div className="metric-box">
-              <span className="metric-title">Grid Resolution</span>
-              <strong className="metric-number">~500 m</strong>
-            </div>
-          </div>
-
-          <table className="hotspots-table">
-            <thead>
-              <tr>
-                <th>Coarse Cell Center</th>
-                <th>Incident Density</th>
-                <th>Primary Categories</th>
-                <th>Risk Classification</th>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Area (approximate centre)</th>
+              <th>Type</th>
+              <th>Incidents</th>
+              <th>Level</th>
+            </tr>
+          </thead>
+          <tbody>
+            {cells.map((cell) => (
+              <tr key={`${cell.grid_lat}-${cell.grid_lng}-${cell.category}`}>
+                <td className="mono">{coords(cell.grid_lat, cell.grid_lng, 3)}</td>
+                <td>{label(CATEGORY_LABEL, cell.category)}</td>
+                <td className="num">{cell.incident_count}</td>
+                <td>{humanize(cell.density_level)}</td>
               </tr>
-            </thead>
-            <tbody>
-              {hotspots.map((cell, idx) => {
-                const count = cell.count || 0;
-                const riskLevel = count >= 20 ? 'HIGH_DENSITY' : count >= 10 ? 'MODERATE' : 'ELEVATED';
-                const riskClass = count >= 20 ? 'risk-high' : count >= 10 ? 'risk-med' : 'risk-low';
-
-                return (
-                  <tr key={idx}>
-                    <td>
-                      <code>
-                        {Number(cell.lat).toFixed(3)}, {Number(cell.lng).toFixed(3)}
-                      </code>
-                    </td>
-                    <td>
-                      <span className="cell-count-badge">{count} incidents</span>
-                    </td>
-                    <td>
-                      {cell.categories
-                        ? Object.entries(cell.categories)
-                            .map(([cat, c]) => `${cat}: ${c}`)
-                            .join(', ')
-                        : 'Mixed Safety Incidents'}
-                    </td>
-                    <td>
-                      <span className={`risk-tag ${riskClass}`}>{riskLevel}</span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </table>
       )}
     </section>
   );

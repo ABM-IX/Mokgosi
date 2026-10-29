@@ -4,7 +4,6 @@ import { supabase } from './lib/supabaseClient.js';
 import {
   DEMO_MODE,
   DEFAULT_DEMO_TOKEN,
-  RESPONDER_REFERRAL_RESOURCES,
   patchIncidentLifecycle,
   postAcousticSimulation,
   postCctvSnapshot,
@@ -13,8 +12,10 @@ import {
   postIncidentReferral,
   fetchSurvivorConsents,
 } from './lib/api.js';
+import { AUDIT_LABEL, actorLabel, clockTime, humanize, label } from './lib/labels.js';
 import HeaderBar from './components/HeaderBar.jsx';
 import IncidentQueue, { isGbvIncident, sortIncidentsByUrgency } from './components/IncidentQueue.jsx';
+import IncidentSummary from './components/IncidentSummary.jsx';
 import TacticalMap from './components/TacticalMap.jsx';
 import LiveOperationsMap from './components/LiveOperationsMap.jsx';
 import CctvStreamModal from './components/CctvStreamModal.jsx';
@@ -22,14 +23,11 @@ import EvidenceDocketModal from './components/EvidenceDocketModal.jsx';
 import GbvCaseView from './components/GbvCaseView.jsx';
 import HotspotsView from './components/HotspotsView.jsx';
 import LandingPortal from './components/LandingPortal.jsx';
-import { DEMO_INCIDENTS, DEMO_CAMERAS, DEMO_BREADCRUMBS } from './lib/demoData.js';
+import { DEMO_INCIDENTS, DEMO_CAMERAS, DEMO_BREADCRUMBS, DEMO_LOGS } from './lib/demoData.js';
 
-const NEXT_STATUS = {
-  CREATED: 'ACKNOWLEDGED',
-  ACKNOWLEDGED: 'ASSIGNED',
-  ASSIGNED: 'DISPATCHED',
-  DISPATCHED: 'RESOLVED',
-};
+// Marks a demo-mode session. It is not a credential: the API rejects it unless VITE_DEMO_RESPONDER_TOKEN
+// is set to the backend's DEMO_RESPONDER_TOKEN.
+const DEMO_SESSION = 'demo-session';
 
 function playCriticalAlertTone() {
   try {
@@ -38,7 +36,7 @@ function playCriticalAlertTone() {
     const ctx = new AudioCtx();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.type = 'sawtooth';
+    osc.type = 'sine';
     osc.frequency.setValueAtTime(880, ctx.currentTime);
     osc.frequency.setValueAtTime(660, ctx.currentTime + 0.14);
     gain.gain.setValueAtTime(0.14, ctx.currentTime);
@@ -52,12 +50,88 @@ function playCriticalAlertTone() {
   }
 }
 
+const AUDIO_STATUS = {
+  ANALYZED: 'Analysed',
+  UNAVAILABLE: 'Not available',
+  AWAITING_OR_BYPASSED: 'No audio shared with this alert',
+};
+
+function AudioContextCard({ incident, canAct, onSimulate }) {
+  const context = incident.ai_context || {};
+  const hasAudio = context.status && context.status !== 'AWAITING_OR_BYPASSED';
+  if (!hasAudio && !DEMO_MODE) return null;
+  return (
+    <section className="card" aria-label="Audio context">
+      <div className="card-head">
+        <h2>Audio context</h2>
+        {context.model === 'DETERMINISTIC_DEMO' && <span className="card-note">Demo profile, not a real analysis</span>}
+      </div>
+      <p className="muted">
+        {AUDIO_STATUS[context.status] || humanize(context.status) || AUDIO_STATUS.AWAITING_OR_BYPASSED}
+        {context.reason ? `. ${context.reason}` : ''}
+      </p>
+      {(context.tags || []).length > 0 && (
+        <div className="row">
+          {context.tags.map((tag) => (
+            <span key={tag} className="tag">
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+      {DEMO_MODE && (
+        <div className="row">
+          <span className="faint">Try a demo profile:</span>
+          <button type="button" className="btn btn-small" disabled={!canAct} onClick={() => onSimulate('DISTRESSED')}>
+            Distress
+          </button>
+          <button type="button" className="btn btn-small" disabled={!canAct} onClick={() => onSimulate('SILENT')}>
+            Silence
+          </button>
+          <button type="button" className="btn btn-small" disabled={!canAct} onClick={() => onSimulate('CONVERSATION')}>
+            Conversation
+          </button>
+        </div>
+      )}
+      <p className="card-note">Audio context can raise an alert’s priority. It never lowers, delays or cancels one.</p>
+    </section>
+  );
+}
+
+function RecentActivity({ logs, onOpen }) {
+  const recent = logs.slice(-5).reverse();
+  return (
+    <section className="card" aria-label="Recent activity">
+      <div className="card-head">
+        <h2>Recent activity</h2>
+        <button type="button" className="btn btn-small btn-quiet" onClick={onOpen}>
+          Full log
+        </button>
+      </div>
+      {recent.length === 0 ? (
+        <p className="muted">Nothing recorded yet.</p>
+      ) : (
+        <ul className="list-plain">
+          {recent.map((log) => (
+            <li key={log.id}>
+              <span>{label(AUDIT_LABEL, log.action)}</span>
+              <span className="faint num">
+                {actorLabel(log.actor_id)} · {clockTime(log.timestamp_utc)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 export default function App() {
   const [incidents, setIncidents] = useState([]);
   const [selected, setSelected] = useState(null);
   const [activeTab, setActiveTab] = useState('ACTIVE');
   const [activePillar, setActivePillar] = useState('SAFER_COMMUNITIES');
-  const [saferSubView, setSaferSubView] = useState('LIVE_MAP'); // 'LIVE_MAP' | 'TACTICAL_MAP' | 'HOTSPOTS'
+  const [saferSubView, setSaferSubView] = useState('TACTICAL_MAP'); // 'TACTICAL_MAP' | 'LIVE_MAP' | 'HOTSPOTS'
 
   const [cameras, setCameras] = useState([]);
   const [locations, setLocations] = useState([]);
@@ -68,37 +142,39 @@ export default function App() {
   const [activeCameraModal, setActiveCameraModal] = useState(null);
   const [docketModalOpen, setDocketModalOpen] = useState(false);
 
-  // Responder auth state (Supabase Auth session or explicit DEMO_MODE session)
+  // Responder auth state (Supabase Auth session, or an explicit demo-mode session)
   const [sessionToken, setSessionToken] = useState(DEFAULT_DEMO_TOKEN);
   const [operatorId, setOperatorId] = useState('');
-  const [emailInput, setEmailInput] = useState('');
-  const [passwordInput, setPasswordInput] = useState('');
-  const [demoTokenInput, setDemoTokenInput] = useState(DEFAULT_DEMO_TOKEN);
 
-  // Operational & SLA telemetry
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [lastRealtimeLatencyMs, setLastRealtimeLatencyMs] = useState(null);
   const [error, setError] = useState('');
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const audioArmedRef = useRef(false);
 
   useEffect(() => {
     audioArmedRef.current = audioEnabled;
   }, [audioEnabled]);
 
-  // 1. Subscribe to Supabase Auth session
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 15000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // 1. Supabase Auth session
   useEffect(() => {
     if (!supabase) return undefined;
     supabase.auth.getSession().then(({ data }) => {
       const sess = data?.session;
       if (sess?.access_token) {
         setSessionToken(sess.access_token);
-        setOperatorId(sess.user?.email || sess.user?.id || 'RESPONDER_AUTH');
+        setOperatorId(sess.user?.email || sess.user?.id || 'Responder');
       }
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => {
       if (sess?.access_token) {
         setSessionToken(sess.access_token);
-        setOperatorId(sess.user?.email || sess.user?.id || 'RESPONDER_AUTH');
+        setOperatorId(sess.user?.email || sess.user?.id || 'Responder');
       } else if (!DEMO_MODE) {
         setSessionToken('');
         setOperatorId('');
@@ -107,7 +183,7 @@ export default function App() {
     return () => sub?.subscription?.unsubscribe();
   }, []);
 
-  // 2. Fetch incidents list
+  // 2. Incident list
   const refreshIncidents = useCallback(async () => {
     if (!supabase) {
       if (DEMO_MODE) {
@@ -118,16 +194,12 @@ export default function App() {
             const updated = DEMO_INCIDENTS.find((x) => x.id === curr.id);
             if (updated) return updated;
           }
-          const sorted = sortIncidentsByUrgency(
-            DEMO_INCIDENTS.filter((x) => x.status !== 'RESOLVED'),
-          );
-          return sorted[0] || DEMO_INCIDENTS[0] || null;
+          const open = DEMO_INCIDENTS.filter((x) => x.status !== 'RESOLVED' && !isGbvIncident(x));
+          return sortIncidentsByUrgency(open)[0] || DEMO_INCIDENTS[0] || null;
         });
         return;
       }
-      setError(
-        'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to connect to Supabase Realtime.',
-      );
+      setError('This console is not connected to the database. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
       return;
     }
     const { data, error: fetchErr } = await supabase
@@ -150,106 +222,68 @@ export default function App() {
     });
   }, []);
 
-  // 3. Incremental Realtime subscription for `incidents`
+  // 3. Realtime subscription for `incidents`
   useEffect(() => {
     refreshIncidents();
     if (!supabase) return undefined;
     const channel = supabase
       .channel('mokgosi-incidents-live')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'incidents' },
-        (payload) => {
-          const nowMs = Date.now();
-          if (payload.eventType === 'INSERT' && payload.new) {
-            const createdMs = new Date(payload.new.created_at || nowMs).getTime();
-            const latency = Math.max(12, Math.min(999, nowMs - createdMs));
-            setLastRealtimeLatencyMs(latency);
-            setIncidents((prev) => {
-              const filtered = prev.filter((item) => item.id !== payload.new.id);
-              return [payload.new, ...filtered];
-            });
-
-            const isGbv = isGbvIncident(payload.new);
-            // Switch pillar automatically if critical GBV alert arrives
-            if (isGbv && payload.new.priority === 'P1_CRITICAL') {
-              setActivePillar('GBV_RESPONSE');
-            }
-
-            if (payload.new.priority === 'P1_CRITICAL') {
-              setSelected(payload.new);
-              setActiveTab('ACTIVE');
-              if (audioArmedRef.current) {
-                playCriticalAlertTone();
-              }
-            } else {
-              setSelected((curr) => curr || payload.new);
-            }
-          } else if (payload.eventType === 'UPDATE' && payload.new) {
-            setIncidents((prev) =>
-              prev.map((item) => (item.id === payload.new.id ? payload.new : item)),
-            );
-            setSelected((curr) => (curr?.id === payload.new.id ? payload.new : curr));
-            if (payload.new.priority === 'P1_CRITICAL' && audioArmedRef.current) {
-              playCriticalAlertTone();
-            }
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'incidents' }, (payload) => {
+        const receivedMs = Date.now();
+        if (payload.eventType === 'INSERT' && payload.new) {
+          const createdMs = new Date(payload.new.created_at || receivedMs).getTime();
+          setLastRealtimeLatencyMs(Math.max(0, receivedMs - createdMs));
+          setIncidents((prev) => [payload.new, ...prev.filter((item) => item.id !== payload.new.id)]);
+          // A critical GBV alert switches the console to the GBV list.
+          if (isGbvIncident(payload.new) && payload.new.priority === 'P1_CRITICAL') {
+            setActivePillar('GBV_RESPONSE');
           }
-        },
-      )
+          if (payload.new.priority === 'P1_CRITICAL') {
+            setSelected(payload.new);
+            setActiveTab('ACTIVE');
+            if (audioArmedRef.current) playCriticalAlertTone();
+          } else {
+            setSelected((curr) => curr || payload.new);
+          }
+        } else if (payload.eventType === 'UPDATE' && payload.new) {
+          setIncidents((prev) => prev.map((item) => (item.id === payload.new.id ? payload.new : item)));
+          setSelected((curr) => (curr?.id === payload.new.id ? payload.new : curr));
+          if (payload.new.priority === 'P1_CRITICAL' && audioArmedRef.current) playCriticalAlertTone();
+        }
+      })
       .subscribe();
-
     return () => {
       supabase.removeChannel(channel);
     };
   }, [refreshIncidents]);
 
-  // 4. Fetch & subscribe incrementally to selected incident context
+  // 4. Details for the selected incident
   useEffect(() => {
     if (!selected) return undefined;
     let mounted = true;
 
-    if (sessionToken) {
-      postIncidentAudit(selected.id, 'VIEW_INCIDENT', sessionToken);
-    }
-
-    // Fetch consents & referrals for GBV context
-    fetchSurvivorConsents(selected.user_id, sessionToken).then((c) => {
-      if (mounted) setSurvivorConsents(c);
-    });
-    fetchIncidentReferrals(selected.id, sessionToken).then((res) => {
-      if (mounted) setIncidentReferralsList(res?.referrals || []);
-    });
+    if (sessionToken) postIncidentAudit(selected.id, 'VIEW_INCIDENT', sessionToken);
+    fetchSurvivorConsents(selected.user_id, sessionToken).then((c) => mounted && setSurvivorConsents(c));
+    fetchIncidentReferrals(selected.id, sessionToken).then((res) => mounted && setIncidentReferralsList(res?.referrals || []));
 
     if (!supabase) {
       if (DEMO_MODE) {
         setCameras(DEMO_CAMERAS);
         setLocations(DEMO_BREADCRUMBS[selected.id] || []);
+        setLogs(DEMO_LOGS[selected.id] || []);
+        setManifests([]);
       }
-      return undefined;
+      return () => {
+        mounted = false;
+      };
     }
 
     (async () => {
       const [camRes, locRes, logRes, manRes] = await Promise.all([
-        supabase.rpc('get_authorized_nearby_cameras', {
-          inc_lat: selected.lat,
-          inc_lng: selected.lng,
-          radius_m: 150,
-        }),
-        supabase
-          .from('incident_locations')
-          .select('*')
-          .eq('incident_id', selected.id)
-          .order('captured_at_utc', { ascending: true }),
-        supabase
-          .from('evidence_audit_logs')
-          .select('*')
-          .eq('incident_id', selected.id)
-          .order('timestamp_utc', { ascending: true }),
-        supabase
-          .from('evidence_manifests')
-          .select('*')
-          .eq('incident_id', selected.id)
-          .order('server_receipt_utc', { ascending: true }),
+        supabase.rpc('get_authorized_nearby_cameras', { inc_lat: selected.lat, inc_lng: selected.lng, radius_m: 150 }),
+        supabase.from('incident_locations').select('*').eq('incident_id', selected.id).order('captured_at_utc', { ascending: true }),
+        supabase.from('evidence_audit_logs').select('*').eq('incident_id', selected.id).order('timestamp_utc', { ascending: true }),
+        supabase.from('evidence_manifests').select('*').eq('incident_id', selected.id).order('server_receipt_utc', { ascending: true }),
       ]);
       if (!mounted) return;
       setCameras(camRes.data || []);
@@ -260,52 +294,15 @@ export default function App() {
 
     const detailChannel = supabase
       .channel(`mokgosi-incident-${selected.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'evidence_manifests',
-          filter: `incident_id=eq.${selected.id}`,
-        },
-        (payload) => {
-          if (payload.new) {
-            setManifests((prev) =>
-              prev.some((m) => m.id === payload.new.id) ? prev : [...prev, payload.new],
-            );
-          }
-        },
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'evidence_audit_logs',
-          filter: `incident_id=eq.${selected.id}`,
-        },
-        (payload) => {
-          if (payload.new) {
-            setLogs((prev) =>
-              prev.some((l) => l.id === payload.new.id) ? prev : [...prev, payload.new],
-            );
-          }
-        },
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'incident_locations',
-          filter: `incident_id=eq.${selected.id}`,
-        },
-        (payload) => {
-          if (payload.new) {
-            setLocations((prev) => [...prev, payload.new]);
-          }
-        },
-      )
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'evidence_manifests', filter: `incident_id=eq.${selected.id}` }, (payload) => {
+        if (payload.new) setManifests((prev) => (prev.some((m) => m.id === payload.new.id) ? prev : [...prev, payload.new]));
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'evidence_audit_logs', filter: `incident_id=eq.${selected.id}` }, (payload) => {
+        if (payload.new) setLogs((prev) => (prev.some((l) => l.id === payload.new.id) ? prev : [...prev, payload.new]));
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'incident_locations', filter: `incident_id=eq.${selected.id}` }, (payload) => {
+        if (payload.new) setLocations((prev) => [...prev, payload.new]);
+      })
       .subscribe();
 
     return () => {
@@ -314,104 +311,53 @@ export default function App() {
     };
   }, [selected?.id, selected?.lat, selected?.lng, selected?.user_id, sessionToken]);
 
-  // 5. Computed SLA metrics and Pillar counts for HeaderBar
+  // 5. Shift numbers for the top bar
   const { openP1Count, medianAckSeconds, saferActiveCount, gbvActiveCount } = useMemo(() => {
     const active = incidents.filter((i) => i.status !== 'RESOLVED');
-    const openP1 = active.filter((i) => i.priority === 'P1_CRITICAL').length;
-    const saferActive = active.filter((i) => !isGbvIncident(i)).length;
-    const gbvActive = active.filter((i) => isGbvIncident(i)).length;
-
     const ackDurations = incidents
       .filter((i) => i.created_at && i.acknowledged_at)
-      .map((i) =>
-        Math.max(
-          0,
-          Math.round(
-            (new Date(i.acknowledged_at).getTime() - new Date(i.created_at).getTime()) /
-              1000,
-          ),
-        ),
-      )
+      .map((i) => Math.max(0, Math.round((new Date(i.acknowledged_at) - new Date(i.created_at)) / 1000)))
       .sort((a, b) => a - b);
     let median = null;
     if (ackDurations.length > 0) {
       const mid = Math.floor(ackDurations.length / 2);
-      median =
-        ackDurations.length % 2 !== 0
-          ? ackDurations[mid]
-          : Math.round((ackDurations[mid - 1] + ackDurations[mid]) / 2);
+      median = ackDurations.length % 2 ? ackDurations[mid] : Math.round((ackDurations[mid - 1] + ackDurations[mid]) / 2);
     }
     return {
-      openP1Count: openP1,
+      openP1Count: active.filter((i) => i.priority === 'P1_CRITICAL').length,
       medianAckSeconds: median,
-      saferActiveCount: saferActive,
-      gbvActiveCount: gbvActive,
+      saferActiveCount: active.filter((i) => !isGbvIncident(i)).length,
+      gbvActiveCount: active.filter((i) => isGbvIncident(i)).length,
     };
   }, [incidents]);
 
   function handlePillarChange(nextPillar) {
     setActivePillar(nextPillar);
-    const activeInPillar = incidents
-      .filter((i) => i.status !== 'RESOLVED')
-      .filter((i) => (nextPillar === 'GBV_RESPONSE' ? isGbvIncident(i) : !isGbvIncident(i)));
-    const sorted = sortIncidentsByUrgency(activeInPillar);
-    if (sorted.length > 0) {
-      setSelected(sorted[0]);
-    } else {
-      const anyInPillar = incidents.filter((i) =>
-        nextPillar === 'GBV_RESPONSE' ? isGbvIncident(i) : !isGbvIncident(i),
-      );
-      setSelected(anyInPillar[0] || null);
-    }
+    const inPillar = (i) => (nextPillar === 'GBV_RESPONSE' ? isGbvIncident(i) : !isGbvIncident(i));
+    const sorted = sortIncidentsByUrgency(incidents.filter((i) => i.status !== 'RESOLVED' && inPillar(i)));
+    setSelected(sorted[0] || incidents.find(inPillar) || null);
   }
 
-  async function handleResponderSignIn(emailOrEvent, maybePassword) {
-    let email = emailInput.trim();
-    let password = passwordInput;
-    if (typeof emailOrEvent === 'string') {
-      email = emailOrEvent.trim();
-      password = maybePassword || '';
-    } else if (emailOrEvent?.preventDefault) {
-      emailOrEvent.preventDefault();
-    }
+  async function handleResponderSignIn(email, password) {
     setError('');
-
-    // Evaluator / Demo mode bypass
-    if (DEMO_MODE && (!supabase || password === 'mokgosi-demo-responder-secret-key-2026' || !password)) {
-      setSessionToken(DEFAULT_DEMO_TOKEN || 'mokgosi-demo-responder-secret-key-2026');
-      setOperatorId(email || 'DEMO_RESPONDER_01');
+    if (DEMO_MODE && (!supabase || !password)) {
+      setSessionToken(DEFAULT_DEMO_TOKEN || DEMO_SESSION);
+      setOperatorId(email || 'Demo responder');
       return;
     }
-
     if (!supabase) {
-      setSessionToken(DEFAULT_DEMO_TOKEN || 'mokgosi-demo-responder-secret-key-2026');
-      setOperatorId(email || 'DEMO_RESPONDER_01');
-      return;
+      throw new Error('Sign-in is unavailable: this console is not connected to Supabase.');
     }
-
-    const { data, error: signErr } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (signErr) {
-      if (DEMO_MODE) {
-        setSessionToken(DEFAULT_DEMO_TOKEN || 'mokgosi-demo-responder-secret-key-2026');
-        setOperatorId(email || 'DEMO_RESPONDER_01');
-        return;
-      }
-      setError(signErr.message);
-      throw signErr;
-    }
+    const { data, error: signErr } = await supabase.auth.signInWithPassword({ email, password });
+    if (signErr) throw signErr;
     if (data?.session) {
       setSessionToken(data.session.access_token);
-      setOperatorId(data.user?.email || data.user?.id || 'RESPONDER');
+      setOperatorId(data.user?.email || data.user?.id || 'Responder');
     }
   }
 
   async function handleSignOut() {
-    if (supabase) {
-      await supabase.auth.signOut();
-    }
+    if (supabase) await supabase.auth.signOut();
     setSessionToken('');
     setOperatorId('');
   }
@@ -423,45 +369,29 @@ export default function App() {
     try {
       const res = await patchIncidentLifecycle(target.id, nextStatus, sessionToken);
       if (res?.incident) {
-        setIncidents((prev) =>
-          prev.map((i) => (i.id === res.incident.id ? res.incident : i)),
-        );
-        if (selected?.id === target.id) {
-          setSelected(res.incident);
-        }
-        if (res.incident.status === 'RESOLVED' && selected?.id === target.id) {
-          setActiveTab('RESOLVED');
-        }
+        setIncidents((prev) => prev.map((i) => (i.id === res.incident.id ? res.incident : i)));
+        if (selected?.id === target.id) setSelected(res.incident);
+        if (res.incident.status === 'RESOLVED' && selected?.id === target.id) setActiveTab('RESOLVED');
         return;
       }
     } catch (err) {
       if (DEMO_MODE) {
+        // Sample data: apply the change locally so the walkthrough still works without a backend.
+        const stamp = new Date().toISOString();
         const updated = {
           ...target,
           status: nextStatus,
-          acknowledged_by:
-            nextStatus === 'ACKNOWLEDGED'
-              ? operatorId || 'DEMO_RESPONDER_01'
-              : target.acknowledged_by,
-          acknowledged_at:
-            nextStatus === 'ACKNOWLEDGED' ? new Date().toISOString() : target.acknowledged_at,
-          assigned_to:
-            nextStatus === 'ASSIGNED'
-              ? operatorId || 'DEMO_RESPONDER_01'
-              : target.assigned_to,
-          assigned_at:
-            nextStatus === 'ASSIGNED' ? new Date().toISOString() : target.assigned_at,
-          dispatched_at:
-            nextStatus === 'DISPATCHED' ? new Date().toISOString() : target.dispatched_at,
-          resolved_at:
-            nextStatus === 'RESOLVED' ? new Date().toISOString() : target.resolved_at,
+          acknowledged_by: nextStatus === 'ACKNOWLEDGED' ? operatorId : target.acknowledged_by,
+          acknowledged_at: nextStatus === 'ACKNOWLEDGED' ? stamp : target.acknowledged_at,
+          assigned_to: nextStatus === 'ASSIGNED' ? operatorId : target.assigned_to,
+          assigned_at: nextStatus === 'ASSIGNED' ? stamp : target.assigned_at,
+          dispatched_at: nextStatus === 'DISPATCHED' ? stamp : target.dispatched_at,
+          resolved_at: nextStatus === 'RESOLVED' ? stamp : target.resolved_at,
         };
         setIncidents((prev) => prev.map((i) => (i.id === target.id ? updated : i)));
         if (selected?.id === target.id) {
           setSelected(updated);
-          if (nextStatus === 'RESOLVED') {
-            setActiveTab('RESOLVED');
-          }
+          if (nextStatus === 'RESOLVED') setActiveTab('RESOLVED');
         }
         return;
       }
@@ -475,16 +405,12 @@ export default function App() {
     try {
       const res = await postAcousticSimulation(selected.id, profile, sessionToken);
       if (res?.incident) {
-        setIncidents((prev) =>
-          prev.map((i) => (i.id === res.incident.id ? res.incident : i)),
-        );
+        setIncidents((prev) => prev.map((i) => (i.id === res.incident.id ? res.incident : i)));
         setSelected(res.incident);
       } else if (res?.ai_context) {
         setSelected((curr) => (curr ? { ...curr, ai_context: res.ai_context } : curr));
       }
-      if (res?.signed_manifest) {
-        setManifests((prev) => [...prev, res.signed_manifest]);
-      }
+      if (res?.signed_manifest) setManifests((prev) => [...prev, res.signed_manifest]);
     } catch (err) {
       setError(err.message);
     }
@@ -492,33 +418,38 @@ export default function App() {
 
   async function handleRecordReferral(partnerId, notes) {
     if (!selected || !sessionToken) return;
-    const res = await postIncidentReferral(selected.id, partnerId, notes, sessionToken);
-    if (res?.referral) {
-      setIncidentReferralsList((prev) => [res.referral, ...prev]);
+    try {
+      const res = await postIncidentReferral(selected.id, partnerId, notes, sessionToken);
+      if (res?.referral) setIncidentReferralsList((prev) => [res.referral, ...prev]);
+    } catch (err) {
+      if (DEMO_MODE) {
+        const stamp = new Date().toISOString();
+        setIncidentReferralsList((prev) => [
+          { id: `demo-${stamp}`, partner_id: partnerId, notes, referred_by: operatorId, referred_at: stamp },
+          ...prev,
+        ]);
+        return;
+      }
+      setError(err.message);
+      throw err;
     }
   }
 
   function handleOpenCameraModal(camera) {
     setActiveCameraModal(camera);
-    if (selected && sessionToken) {
-      postIncidentAudit(selected.id, 'OPEN_CCTV_STREAM', sessionToken);
-    }
+    if (selected && sessionToken) postIncidentAudit(selected.id, 'OPEN_CCTV_STREAM', sessionToken);
   }
 
   async function handleCaptureSnapshot(cameraId) {
     if (!selected) return null;
     const res = await postCctvSnapshot(selected.id, cameraId, sessionToken);
-    if (res?.manifest) {
-      setManifests((prev) => [...prev, res.manifest]);
-    }
+    if (res?.manifest) setManifests((prev) => [...prev, res.manifest]);
     return res;
   }
 
   function handleOpenDocketModal() {
     setDocketModalOpen(true);
-    if (selected && sessionToken) {
-      postIncidentAudit(selected.id, 'VIEW_EVIDENCE', sessionToken);
-    }
+    if (selected && sessionToken) postIncidentAudit(selected.id, 'VIEW_EVIDENCE', sessionToken);
   }
 
   const handleSelectIncident = useCallback((inc) => {
@@ -532,27 +463,73 @@ export default function App() {
     }
   }, []);
 
-  const expectedNextStatus = selected ? NEXT_STATUS[selected.status] : null;
-  const aiModelLabel = selected?.ai_context?.model
-    ? selected.ai_context.model === 'DETERMINISTIC_DEMO'
-      ? 'DEMO PROFILE (DETERMINISTIC_DEMO — NOT YAMNET)'
-      : selected.ai_context.model
-    : 'NO MODEL INVOKED';
-  const isGbvSelected = selected && isGbvIncident(selected);
-
   if (!operatorId) {
-    return (
-      <LandingPortal
-        onSignIn={handleResponderSignIn}
-        error={error}
-        demoMode={DEMO_MODE}
-        meshOnline={Boolean(supabase)}
+    return <LandingPortal onSignIn={handleResponderSignIn} error={error} demoMode={DEMO_MODE} />;
+  }
+
+  const isPublic = activePillar === 'SAFER_COMMUNITIES';
+  const selectedHere = selected && isGbvIncident(selected) !== isPublic ? selected : null;
+  const mapCameras = !DEMO_MODE || cameras.length > 0 ? cameras : DEMO_CAMERAS;
+  const canAct = Boolean(sessionToken);
+
+  let body;
+  if (isPublic && saferSubView === 'HOTSPOTS') {
+    body = <HotspotsView />;
+  } else if (isPublic && saferSubView === 'LIVE_MAP') {
+    body = (
+      <LiveOperationsMap
+        incidents={incidents}
+        selectedId={selected?.id}
+        onSelectIncident={handleSelectIncident}
+        onLifecycle={handleLifecycle}
+        cameras={mapCameras}
+        onOpenCameraStream={handleOpenCameraModal}
+        activePillar={activePillar}
       />
+    );
+  } else if (selectedHere) {
+    body = (
+      <>
+        <IncidentSummary
+          incident={selectedHere}
+          canAct={canAct}
+          onLifecycle={(next) => handleLifecycle(next)}
+          onOpenEvidence={handleOpenDocketModal}
+          nowMs={nowMs}
+        />
+        {isGbvIncident(selectedHere) ? (
+          <GbvCaseView
+            incident={selectedHere}
+            allIncidents={incidents}
+            consents={survivorConsents}
+            referrals={incidentReferralsList}
+            manifests={manifests}
+            logs={logs}
+            cameras={cameras}
+            locations={locations}
+            onRecordReferral={handleRecordReferral}
+            onOpenDocket={handleOpenDocketModal}
+            onOpenCameraStream={handleOpenCameraModal}
+          />
+        ) : (
+          <>
+            <AudioContextCard incident={selectedHere} canAct={canAct} onSimulate={handleAcousticSimulation} />
+            <TacticalMap incident={selectedHere} locations={locations} cameras={cameras} onOpenCameraStream={handleOpenCameraModal} />
+            <RecentActivity logs={logs} onOpen={handleOpenDocketModal} />
+          </>
+        )}
+      </>
+    );
+  } else {
+    body = (
+      <p className="empty">
+        {isPublic ? 'Select an incident from the list.' : 'No GBV incident selected. New alerts appear here as they arrive.'}
+      </p>
     );
   }
 
   return (
-    <main className="command-app">
+    <div className="console">
       <HeaderBar
         meshOnline={Boolean(supabase)}
         demoMode={DEMO_MODE}
@@ -573,16 +550,19 @@ export default function App() {
         gbvCount={gbvActiveCount}
       />
 
+      {DEMO_MODE && (
+        <div className="notice-strip">Demo mode. Everything here is sample data, and nothing you do reaches a real person.</div>
+      )}
       {error && (
-        <div className="notice" role="alert">
+        <div className="notice-strip is-error" role="alert">
           <span>{error}</span>
-          <button type="button" className="btn-ghost" onClick={() => setError('')}>
+          <button type="button" className="btn btn-small" onClick={() => setError('')}>
             Dismiss
           </button>
         </div>
       )}
 
-      <div className="layout">
+      <div className="workspace">
         <IncidentQueue
           incidents={incidents}
           selectedId={selected?.id}
@@ -592,259 +572,32 @@ export default function App() {
           activePillar={activePillar}
         />
 
-        <section className="details" aria-label="Selected Incident Details">
-          {activePillar === 'SAFER_COMMUNITIES' && (
-            <div className="subview-bar" role="tablist">
-              <button
-                type="button"
-                className={`subview-btn ${saferSubView === 'LIVE_MAP' ? 'active' : ''}`}
-                onClick={() => setSaferSubView('LIVE_MAP')}
-              >
-                Citywide Live Map
-              </button>
-              <button
-                type="button"
-                className={`subview-btn ${saferSubView === 'TACTICAL_MAP' ? 'active' : ''}`}
-                onClick={() => setSaferSubView('TACTICAL_MAP')}
-              >
-                Tactical Live Map
-              </button>
-              <button
-                type="button"
-                className={`subview-btn ${saferSubView === 'HOTSPOTS' ? 'active' : ''}`}
-                onClick={() => setSaferSubView('HOTSPOTS')}
-              >
-                Community Hotspots &amp; Density (Aggregated)
-              </button>
-            </div>
-          )}
-
-          {activePillar === 'SAFER_COMMUNITIES' && saferSubView === 'HOTSPOTS' ? (
-            <HotspotsView onBackToLiveMap={() => setSaferSubView('LIVE_MAP')} />
-          ) : activePillar === 'SAFER_COMMUNITIES' && saferSubView === 'LIVE_MAP' ? (
-            <LiveOperationsMap
-              incidents={incidents}
-              selectedId={selected?.id}
-              onSelectIncident={handleSelectIncident}
-              onLifecycle={handleLifecycle}
-              cameras={cameras.length > 0 ? cameras : DEMO_CAMERAS}
-              onOpenCameraStream={handleOpenCameraModal}
-              activePillar={activePillar}
-            />
-          ) : selected ? (
-            <>
-
-              {selected.trigger_type === 'DURESS_PIN' && (
-                <div className="duress-banner" role="alert">
-                  <strong>
-                    ⚠️ SILENT DURESS — do NOT call or message the user
-                  </strong>
-                  <span>
-                    Survivor entered covert Duress PIN (0852). Their screen displays a
-                    neutral “Journey Completed” decoy. Any outbound call or SMS to the
-                    device risks exposing the survivor to an assailant.
-                  </span>
-                </div>
-              )}
-
-              <div className="panel">
-                <div className="title">
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                      <button
-                        type="button"
-                        className="btn-ghost"
-                        style={{ padding: '3px 8px', fontSize: '11px', border: '1px solid var(--color-border)', borderRadius: '4px', cursor: 'pointer' }}
-                        onClick={() => setSaferSubView('LIVE_MAP')}
-                      >
-                        ← Citywide Map
-                      </button>
-                    </div>
-                    <h2>
-                      Incident #{selected.id.slice(0, 8)} · {selected.trigger_type}
-                    </h2>
-                    <small>
-                      Category: <b>{selected.category || 'PERSONAL_SAFETY'}</b> · Trusted
-                      contact:{' '}
-                      <b>{selected.trusted_contact_phone || 'Not configured'}</b>
-                    </small>
-                    <div className="lifecycle-chain">
-                      <span>
-                        Ack: <b>{selected.acknowledged_by || 'Pending'}</b>
-                      </span>
-                      <span>
-                        Assigned: <b>{selected.assigned_to || 'Pending'}</b>
-                      </span>
-                      <span>
-                        Dispatched:{' '}
-                        <b>
-                          {selected.dispatched_at
-                            ? new Date(selected.dispatched_at).toLocaleTimeString()
-                            : 'Pending'}
-                        </b>
-                      </span>
-                      <span>
-                        Resolved:{' '}
-                        <b>
-                          {selected.resolved_at
-                            ? new Date(selected.resolved_at).toLocaleTimeString()
-                            : 'Open'}
-                        </b>
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="actions" aria-label="Responder Lifecycle Controls">
-                    <button
-                      type="button"
-                      disabled={expectedNextStatus !== 'ACKNOWLEDGED' || !sessionToken}
-                      onClick={() => handleLifecycle('ACKNOWLEDGED')}
-                    >
-                      1. Acknowledge
-                    </button>
-                    <button
-                      type="button"
-                      disabled={expectedNextStatus !== 'ASSIGNED' || !sessionToken}
-                      onClick={() => handleLifecycle('ASSIGNED')}
-                    >
-                      2. Assign
-                    </button>
-                    <button
-                      type="button"
-                      disabled={expectedNextStatus !== 'DISPATCHED' || !sessionToken}
-                      onClick={() => handleLifecycle('DISPATCHED')}
-                    >
-                      3. Dispatch Unit
-                    </button>
-                    <button
-                      type="button"
-                      className="muted"
-                      disabled={expectedNextStatus !== 'RESOLVED' || !sessionToken}
-                      onClick={() => handleLifecycle('RESOLVED')}
-                    >
-                      4. Resolve
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-outline"
-                      onClick={handleOpenDocketModal}
-                    >
-                      Inspect Full Evidence Docket
-                    </button>
-                  </div>
-                </div>
-
-                {!isGbvSelected && (
-                  <div className="ai">
-                    <div>
-                      <b>
-                        AI Acoustic &amp; Sensor Context · Escalation Aid Only ({aiModelLabel})
-                      </b>
-                      <p>
-                        Status: {selected.ai_context?.status || 'AWAITING_OR_BYPASSED'} · Tags:{' '}
-                        {(selected.ai_context?.tags || []).join(', ') || 'No tags'}
-                        {selected.ai_context?.reason ? ` (${selected.ai_context.reason})` : ''}
-                      </p>
-                    </div>
-
-                    {DEMO_MODE && (
-                      <div className="actions">
-                        <button
-                          type="button"
-                          className="danger"
-                          disabled={!sessionToken}
-                          onClick={() => handleAcousticSimulation('DISTRESSED')}
-                        >
-                          DEMO: Distress Profile
-                        </button>
-                        <button
-                          type="button"
-                          className="muted"
-                          disabled={!sessionToken}
-                          onClick={() => handleAcousticSimulation('SILENT')}
-                        >
-                          DEMO: Silent Coercion
-                        </button>
-                        <button
-                          type="button"
-                          className="muted"
-                          disabled={!sessionToken}
-                          onClick={() => handleAcousticSimulation('CONVERSATION')}
-                        >
-                          DEMO: Conversation
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
+        <section className="detail" aria-label="Incident details">
+          <div className="detail-inner">
+            {isPublic && (
+              <div className="tabs view-tabs" role="tablist" aria-label="View">
+                <button type="button" role="tab" aria-selected={saferSubView === 'TACTICAL_MAP'} onClick={() => setSaferSubView('TACTICAL_MAP')}>
+                  Incident
+                </button>
+                <button type="button" role="tab" aria-selected={saferSubView === 'LIVE_MAP'} onClick={() => setSaferSubView('LIVE_MAP')}>
+                  City map
+                </button>
+                <button type="button" role="tab" aria-selected={saferSubView === 'HOTSPOTS'} onClick={() => setSaferSubView('HOTSPOTS')}>
+                  Area trends
+                </button>
               </div>
-
-              {/* Pillar B View (GBV Cases) */}
-              {isGbvSelected ? (
-                <GbvCaseView
-                  incident={selected}
-                  allIncidents={incidents}
-                  consents={survivorConsents}
-                  referrals={incidentReferralsList}
-                  manifests={manifests}
-                  logs={logs}
-                  cameras={cameras}
-                  locations={locations}
-                  onRecordReferral={handleRecordReferral}
-                  onOpenDocket={handleOpenDocketModal}
-                  onOpenCameraStream={handleOpenCameraModal}
-                />
-              ) : (
-                /* Pillar A View (Public Safety / Safer Communities) */
-                <>
-                  <TacticalMap
-                    incident={selected}
-                    locations={locations}
-                    cameras={cameras}
-                    onOpenCameraStream={handleOpenCameraModal}
-                  />
-
-                  <EvidenceDocketModal manifests={manifests} logs={logs} />
-                </>
-              )}
-            </>
-          ) : (
-            activePillar === 'SAFER_COMMUNITIES' ? (
-              <LiveOperationsMap
-                incidents={incidents}
-                selectedId={selected?.id}
-                onSelectIncident={handleSelectIncident}
-                onLifecycle={handleLifecycle}
-                cameras={cameras.length > 0 ? cameras : DEMO_CAMERAS}
-                onOpenCameraStream={handleOpenCameraModal}
-                activePillar={activePillar}
-              />
-            ) : (
-              <div className="panel empty">
-                No incident selected in this pillar. Incoming SOS, Duress, and Check-In alerts appear here automatically.
-              </div>
-            )
-          )}
+            )}
+            {body}
+          </div>
         </section>
       </div>
 
       {activeCameraModal && selected && (
-        <CctvStreamModal
-          camera={activeCameraModal}
-          incidentId={selected.id}
-          onClose={() => setActiveCameraModal(null)}
-          onCaptureSnapshot={handleCaptureSnapshot}
-        />
+        <CctvStreamModal camera={activeCameraModal} onClose={() => setActiveCameraModal(null)} onCaptureSnapshot={handleCaptureSnapshot} />
       )}
-
       {docketModalOpen && selected && (
-        <EvidenceDocketModal
-          manifests={manifests}
-          logs={logs}
-          isModal
-          onClose={() => setDocketModalOpen(false)}
-        />
+        <EvidenceDocketModal manifests={manifests} logs={logs} isModal onClose={() => setDocketModalOpen(false)} />
       )}
-    </main>
+    </div>
   );
 }

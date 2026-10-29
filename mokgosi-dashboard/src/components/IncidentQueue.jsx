@@ -1,5 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { SLA_ACK_THRESHOLD_SECONDS } from '../lib/api.js';
+import {
+  CATEGORY_LABEL,
+  PRIORITY_CLASS,
+  PRIORITY_LABEL,
+  STATUS_LABEL,
+  TRIGGER_LABEL,
+  duration,
+  isCovert,
+  label,
+  shortId,
+  timeAgo,
+} from '../lib/labels.js';
 
 const PRIORITY_RANK = { P1_CRITICAL: 3, P2_HIGH: 2, P3_VERIFY: 1 };
 
@@ -11,18 +23,6 @@ export function sortIncidentsByUrgency(list) {
   });
 }
 
-function formatElapsed(seconds) {
-  if (!Number.isFinite(seconds) || seconds < 0) return '0s';
-  if (seconds < 60) return `${Math.floor(seconds)}s`;
-  const mins = Math.floor(seconds / 60);
-  const rem = Math.floor(seconds % 60);
-  return `${mins}m ${rem}s`;
-}
-
-/**
- * Priority-sorted incident queue with Active vs Resolved tabs, per-card live SLA
- * timer, silent duress warning badge, and GBV domestic category indicator.
- */
 export function isGbvIncident(inc) {
   if (!inc) return false;
   const cat = inc.category || '';
@@ -33,6 +33,7 @@ export function isGbvIncident(inc) {
   );
 }
 
+/** Open / resolved incident list for the current incident type, most urgent first. */
 export default function IncidentQueue({
   incidents,
   selectedId,
@@ -54,116 +55,68 @@ export default function IncidentQueue({
     return activePillar === 'GBV_RESPONSE' ? gbv : !gbv;
   });
 
-  const activeList = sortIncidentsByUrgency(
-    pillarFiltered.filter((inc) => inc.status !== 'RESOLVED'),
-  );
-  const resolvedList = sortIncidentsByUrgency(
-    pillarFiltered.filter((inc) => inc.status === 'RESOLVED'),
-  );
-  const visible = activeTab === 'RESOLVED' ? resolvedList : activeList;
+  const activeList = sortIncidentsByUrgency(pillarFiltered.filter((inc) => inc.status !== 'RESOLVED'));
+  const resolvedList = sortIncidentsByUrgency(pillarFiltered.filter((inc) => inc.status === 'RESOLVED'));
+  const showResolved = activeTab === 'RESOLVED';
+  const visible = showResolved ? resolvedList : activeList;
 
   return (
-    <aside className="panel queue" aria-label="Incident Queue">
-      <div className="queue-header">
-        <h2>
-          Incident Queue <small>{visible.length}</small>
-        </h2>
-        <div className="queue-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab !== 'RESOLVED'}
-            className={`tab-btn ${activeTab !== 'RESOLVED' ? 'active' : ''}`}
-            onClick={() => onTabChange('ACTIVE')}
-          >
-            Active ({activeList.length})
+    <aside className="queue" aria-label="Incidents">
+      <div className="queue-head">
+        <div className="tabs" role="tablist" aria-label="Incident list">
+          <button type="button" role="tab" aria-selected={!showResolved} onClick={() => onTabChange('ACTIVE')}>
+            Open <span className="count">{activeList.length}</span>
           </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'RESOLVED'}
-            className={`tab-btn ${activeTab === 'RESOLVED' ? 'active' : ''}`}
-            onClick={() => onTabChange('RESOLVED')}
-          >
-            Resolved ({resolvedList.length})
+          <button type="button" role="tab" aria-selected={showResolved} onClick={() => onTabChange('RESOLVED')}>
+            Resolved <span className="count">{resolvedList.length}</span>
           </button>
         </div>
       </div>
 
-      <div className="queue-list">
+      <ul className="queue-list">
         {visible.length === 0 ? (
-          <div className="empty-queue">
-            {activeTab === 'RESOLVED'
-              ? 'No resolved incidents in this session.'
-              : 'No active incidents. Incoming SOS, Duress, and Check-In alerts appear here in < 1s.'}
-          </div>
+          <li className="queue-empty">
+            {showResolved ? 'Nothing resolved yet.' : 'No open incidents. New alerts appear here as they arrive.'}
+          </li>
         ) : (
           visible.map((inc) => {
-            const createdMs = new Date(inc.created_at || nowMs).getTime();
-            const elapsedSeconds = Math.max(0, (nowMs - createdMs) / 1000);
-            const unacknowledgedBreach =
-              inc.status === 'CREATED' && elapsedSeconds >= SLA_ACK_THRESHOLD_SECONDS;
-            const isDuress = inc.trigger_type === 'DURESS_PIN';
-            const isCovert = inc.trigger_type === 'COVERT_SOS' || inc.trigger_type === 'SHAKE_SOS';
-            const isGbv = inc.category && inc.category.startsWith('GBV_');
-            const priorityClass =
-              inc.priority === 'P1_CRITICAL'
-                ? 'p1'
-                : inc.priority === 'P2_HIGH'
-                ? 'p2'
-                : 'p3';
-
+            const elapsedSeconds = Math.max(0, (nowMs - new Date(inc.created_at || nowMs).getTime()) / 1000);
+            const unacknowledged = inc.status === 'CREATED' && elapsedSeconds >= SLA_ACK_THRESHOLD_SECONDS;
+            const priority = PRIORITY_CLASS[inc.priority] || 'check';
+            const gbvCategory = inc.category && inc.category.startsWith('GBV_');
             return (
-              <button
-                type="button"
-                key={inc.id}
-                className={`incident-card ${selectedId === inc.id ? 'selected' : ''} ${
-                  isDuress || isCovert ? 'duress-card' : ''
-                }`}
-                onClick={() => onSelect(inc)}
-              >
-                <div className="card-top-row">
-                  <div className="badge-group">
-                    <span className={`badge ${priorityClass}`}>{inc.priority}</span>
-                    {isDuress && (
-                      <span className="badge badge-duress">SILENT DURESS</span>
-                    )}
-                    {isCovert && (
-                      <span className="badge badge-covert">COVERT ALERT</span>
-                    )}
-                    {isGbv && (
-                      <span className="badge badge-gbv">{inc.category.replace('_', ' ')}</span>
-                    )}
-                  </div>
-                  <span className="status-tag">{inc.status}</span>
-                </div>
-
-                <strong className="card-title">
-                  {inc.trigger_type} · {inc.user_id}
-                </strong>
-
-                <div className="card-meta-row">
-                  <small>
-                    GPS {Number(inc.lat).toFixed(4)}, {Number(inc.lng).toFixed(4)} ·{' '}
-                    {Number(inc.impact_g_force || 1).toFixed(1)}g
-                  </small>
-                  <span
-                    className={`sla-timer ${unacknowledgedBreach ? 'breach' : ''}`}
-                    title={
-                      unacknowledgedBreach
-                        ? `Unacknowledged beyond ${SLA_ACK_THRESHOLD_SECONDS}s SLA threshold`
-                        : 'Elapsed time since incident creation'
-                    }
-                  >
-                    SLA {formatElapsed(elapsedSeconds)}
+              <li key={inc.id}>
+                <button
+                  type="button"
+                  className={`queue-item prio-${priority} ${selectedId === inc.id ? 'is-selected' : ''}`}
+                  aria-current={selectedId === inc.id ? 'true' : undefined}
+                  onClick={() => onSelect(inc)}
+                >
+                  <span className="queue-item-top">
+                    <span className="queue-title">{label(TRIGGER_LABEL, inc.trigger_type)}</span>
+                    <span className="queue-age">{timeAgo(inc.created_at, nowMs)}</span>
                   </span>
-                </div>
-              </button>
+                  <span className="queue-meta">
+                    <span className={`tag tag-${priority}`}>{label(PRIORITY_LABEL, inc.priority)}</span>
+                    <span>{label(STATUS_LABEL, inc.status)}</span>
+                    <span>·</span>
+                    <span className="mono">{shortId(inc.user_id)}</span>
+                  </span>
+                  {(isCovert(inc) || gbvCategory) && (
+                    <span className="queue-meta">
+                      {isCovert(inc) && <span className="tag tag-covert">Do not contact</span>}
+                      {gbvCategory && <span>{label(CATEGORY_LABEL, inc.category)}</span>}
+                    </span>
+                  )}
+                  {unacknowledged && (
+                    <span className="queue-breach">Not acknowledged for {duration(elapsedSeconds)}</span>
+                  )}
+                </button>
+              </li>
             );
           })
         )}
-      </div>
+      </ul>
     </aside>
   );
 }
-

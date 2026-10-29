@@ -22,6 +22,9 @@ test('Dashboard modular components exist per Master Architecture v2.0 & G5 Two-P
     'components/HotspotsView.jsx',
     'config/gbvProtocols.js',
     'lib/demoData.js',
+    'lib/labels.js',
+    'lib/mapStyle.js',
+    'components/IncidentSummary.jsx',
   ];
   for (const rel of required) {
     assert.equal(fs.existsSync(path.join(srcDir, rel)), true, `Missing ${rel}`);
@@ -50,21 +53,19 @@ test('IncidentQueue sorts by P1_CRITICAL > P2_HIGH > P3_VERIFY then age', () => 
   );
 });
 
-test('Dashboard includes SILENT DURESS warning, 4-step lifecycle, Ed25519 verify, and non-invented referral TODOs', () => {
-  const appSource = fs.readFileSync(path.join(srcDir, 'App.jsx'), 'utf8');
-  const docketSource = fs.readFileSync(
-    path.join(srcDir, 'components', 'EvidenceDocketModal.jsx'),
-    'utf8',
-  );
-  const apiSource = fs.readFileSync(path.join(srcDir, 'lib', 'api.js'), 'utf8');
+test('Silent alerts warn against contact; all four lifecycle steps and the signature check exist', () => {
+  const summarySource = fs.readFileSync(path.join(srcDir, 'components', 'IncidentSummary.jsx'), 'utf8');
+  const labelsSource = fs.readFileSync(path.join(srcDir, 'lib', 'labels.js'), 'utf8');
+  const docketSource = fs.readFileSync(path.join(srcDir, 'components', 'EvidenceDocketModal.jsx'), 'utf8');
 
-  assert.match(appSource, /SILENT DURESS — do NOT call or message the user/);
-  assert.match(appSource, /1\. Acknowledge/);
-  assert.match(appSource, /2\. Assign/);
-  assert.match(appSource, /3\. Dispatch Unit/);
-  assert.match(appSource, /4\. Resolve/);
-  assert.match(docketSource, /Verify Signature \(Ed25519\)/);
-  assert.match(apiSource, /TODO: confirm with Botswana Police Service GBV desk/);
+  assert.match(summarySource, /Do not call or text this person/);
+  assert.match(summarySource, /isCovert\(incident\)/);
+  for (const action of ["ACKNOWLEDGED: 'Acknowledge'", "ASSIGNED: 'Assign'", "DISPATCHED: 'Mark as dispatched'", "RESOLVED: 'Resolve'"]) {
+    assert.ok(labelsSource.includes(action), `Missing lifecycle action ${action}`);
+  }
+  assert.match(labelsSource, /COVERT_TRIGGERS = new Set\(\['DURESS_PIN', 'COVERT_SOS', 'SHAKE_SOS'\]\)/);
+  assert.match(docketSource, /Check signature/);
+  assert.match(docketSource, /Test with a changed copy/);
 });
 
 test('Pillar Tab Filtering: isGbvIncident partitions Safer Communities vs GBV Response incidents', () => {
@@ -93,34 +94,34 @@ test('Pillar Tab Filtering: isGbvIncident partitions Safer Communities vs GBV Re
   assert.deepEqual(gbvIncidents.map((i) => i.id), ['2', '4', '5']);
 });
 
-test('Pillar B Protocol Card overrides direct outreach and requires partner confirmation', () => {
+test('GBV guidance blocks direct contact, is marked as draft, and hides cameras near homes', () => {
   const gbvCaseSource = fs.readFileSync(path.join(srcDir, 'components', 'GbvCaseView.jsx'), 'utf8');
   const protocolSource = fs.readFileSync(path.join(srcDir, 'config', 'gbvProtocols.js'), 'utf8');
 
-  // Verify protocol card overrides direct phone call suggestions
-  assert.match(gbvCaseSource, /STRICT SILENT PROTOCOL: DIRECT CONTACT PROHIBITED/);
-  assert.match(gbvCaseSource, /CRITICAL SAFETY DIRECTIVE: DO NOT CALL OR MESSAGE THE SURVIVOR/);
-  assert.match(protocolSource, /TODO: confirm with partner organisations/);
-  assert.match(protocolSource, /DO NOT initiate direct telephone calls or SMS messages/);
-  assert.match(gbvCaseSource, /CCTV cones are hidden for domestic addresses/);
+  assert.match(protocolSource, /Do not phone, text or message the person’s phone/);
+  assert.match(protocolSource, /Not yet agreed with partner organisations/);
+  assert.match(gbvCaseSource, /Not allowed \(silent alert\)/);
+  assert.match(gbvCaseSource, /map and nearby cameras are hidden until you open them/);
 });
 
-test('Referral panel records referral handoff without fake contacts and logs audit', () => {
+test('Referral partners are all unverified, list no phone numbers, and are labelled as such', async () => {
   const gbvCaseSource = fs.readFileSync(path.join(srcDir, 'components', 'GbvCaseView.jsx'), 'utf8');
   const protocolSource = fs.readFileSync(path.join(srcDir, 'config', 'gbvProtocols.js'), 'utf8');
   const apiSource = fs.readFileSync(path.join(srcDir, 'lib', 'api.js'), 'utf8');
 
   assert.match(apiSource, /postIncidentReferral/);
-  assert.match(gbvCaseSource, /Record Formal Referral & Log Audit/);
-  assert.match(protocolSource, /TODO: verify official desk number/);
-  assert.match(protocolSource, /TODO: verify official hotline/);
+  assert.match(gbvCaseSource, /Record referral/);
+  assert.match(gbvCaseSource, /\(not yet verified\)/);
+  assert.doesNotMatch(protocolSource, /verified: true/);
+  assert.doesNotMatch(protocolSource, /\+?\d[\d\s-]{6,}\d/, 'No phone numbers until a partner confirms them');
 });
 
-test('Hotspots analytics enforces k-anonymity suppression (cells < 5 suppressed)', () => {
+test('Area trends explain the privacy threshold and read the fields the API returns', () => {
   const hotspotSource = fs.readFileSync(path.join(srcDir, 'components', 'HotspotsView.jsx'), 'utf8');
-  assert.match(hotspotSource, /Strict K-Anonymity Privacy Guarantee/);
-  assert.match(hotspotSource, /Cells with fewer than 5 incidents/);
-  assert.match(hotspotSource, /All sparse cells were safely suppressed/);
+  assert.match(hotspotSource, /fewer than 5 incidents \(10 for/);
+  for (const field of ['incident_count', 'grid_lat', 'grid_lng', 'density_level']) {
+    assert.ok(hotspotSource.includes(field), `HotspotsView must read ${field} from /api/v1/analytics/hotspots`);
+  }
 });
 
 test('Realtime alert dispatch-to-dashboard latency benchmark (< 1000 ms)', async () => {
@@ -144,20 +145,31 @@ test('Realtime alert dispatch-to-dashboard latency benchmark (< 1000 ms)', async
   assert.ok(max < 1000, `Alert latency must be under 1s, got ${max}ms`);
 });
 
-test('LiveOperationsMap CAD dispatch view provides multi-incident overview, filters, and quick actions', () => {
-  const liveMapSource = fs.readFileSync(
-    path.join(srcDir, 'components', 'LiveOperationsMap.jsx'),
-    'utf8',
-  );
+test('City map shows every open incident with filters and quick actions', () => {
+  const liveMapSource = fs.readFileSync(path.join(srcDir, 'components', 'LiveOperationsMap.jsx'), 'utf8');
   const appSource = fs.readFileSync(path.join(srcDir, 'App.jsx'), 'utf8');
 
-  assert.match(liveMapSource, /Citywide Live Operations &amp; Dispatch Map/);
-  assert.match(liveMapSource, /CCTV Mesh/);
-  assert.match(liveMapSource, /150m Radii/);
-  assert.match(liveMapSource, /Center CBD/);
-  assert.match(liveMapSource, /Quick Acknowledge/);
-  assert.match(liveMapSource, /Quick Dispatch/);
-  assert.match(appSource, /Citywide Live Map/);
+  assert.match(liveMapSource, /City map/);
+  assert.match(liveMapSource, /Cameras \(/);
+  assert.match(liveMapSource, /150 m circles/);
+  assert.match(liveMapSource, /Recenter/);
+  assert.match(liveMapSource, /NEXT_ACTION_LABEL\.ACKNOWLEDGED/);
+  assert.match(liveMapSource, /NEXT_ACTION_LABEL\.DISPATCHED/);
+  assert.match(appSource, /City map/);
+});
+
+test('Public sign-in page does not reveal the phone disguise or its PINs', () => {
+  const landingSource = fs.readFileSync(path.join(srcDir, 'components', 'LandingPortal.jsx'), 'utf8');
+  for (const secret of ['2580', '0852', 'alculator', 'disguise ', 'duress']) {
+    assert.ok(!landingSource.includes(secret), `Sign-in page must not mention ${secret}`);
+  }
+});
+
+test('No hard-coded demo responder password ships in the source', () => {
+  for (const rel of ['App.jsx', 'components/LandingPortal.jsx', 'lib/api.js']) {
+    const source = fs.readFileSync(path.join(srcDir, rel), 'utf8');
+    assert.ok(!source.includes('mokgosi-demo-responder-secret-key'), `${rel} still contains the demo password`);
+  }
 });
 
 

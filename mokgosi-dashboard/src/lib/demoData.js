@@ -1,14 +1,16 @@
 /**
- * Mock and Demo Incident and Camera seed data for offline and demo evaluation.
- * Realistic Gaborone, Botswana geographic coordinates (CBD, Main Mall, UB Campus, Broadhurst, Station).
+ * Sample data for demo mode only (VITE_DEMO_MODE=true with no Supabase connection).
+ * Places are real Gaborone locations; people and incidents are invented. The data that needs the clock
+ * is built in pure-annotated calls so production builds drop it.
  */
 
 const now = Date.now();
+const ago = (ms) => new Date(now - ms).toISOString();
 
 export const DEMO_CAMERAS = [
   {
     id: 'cam-cbd-04',
-    owner_name: 'Gaborone CBD — SafeCity Pole #04',
+    owner_name: 'Gaborone CBD, pole 4',
     lat: -24.6545,
     lng: 25.9085,
     azimuth_deg: 180,
@@ -20,9 +22,9 @@ export const DEMO_CAMERAS = [
   },
   {
     id: 'cam-mall-02',
-    owner_name: 'Main Mall Retail Opt-In Cam #02',
-    lat: -24.6580,
-    lng: 25.9120,
+    owner_name: 'Main Mall, shop camera 2',
+    lat: -24.658,
+    lng: 25.912,
     azimuth_deg: 90,
     fov_deg: 95,
     is_authorized: true,
@@ -32,7 +34,7 @@ export const DEMO_CAMERAS = [
   },
   {
     id: 'cam-ub-07',
-    owner_name: 'UB Campus North Gate Security Pole #07',
+    owner_name: 'UB north gate',
     lat: -24.6605,
     lng: 25.9315,
     azimuth_deg: 240,
@@ -44,7 +46,7 @@ export const DEMO_CAMERAS = [
   },
   {
     id: 'cam-station-12',
-    owner_name: 'Station Interchange Commercial CCTV #12',
+    owner_name: 'Station interchange, camera 12',
     lat: -24.6588,
     lng: 25.9035,
     azimuth_deg: 45,
@@ -56,7 +58,7 @@ export const DEMO_CAMERAS = [
   },
   {
     id: 'cam-broadhurst-01',
-    owner_name: 'Broadhurst Safe-Hub Community Cam #01',
+    owner_name: 'Broadhurst community hub',
     lat: -24.6325,
     lng: 25.9215,
     azimuth_deg: 135,
@@ -68,153 +70,160 @@ export const DEMO_CAMERAS = [
   },
 ];
 
-export const DEMO_INCIDENTS = [
-  {
-    id: 'a1b2c3d4-e5f6-4a1b-8c2d-000000000001',
-    user_id: 'escort_user_gaborone_01',
-    trusted_contact_phone: '+26771234567',
-    trigger_type: 'EXPLICIT_SOS',
+const NO_AUDIO = { status: 'AWAITING_OR_BYPASSED', tags: [], confidence: null };
+
+function incident(fields) {
+  return {
+    trusted_contact_phone: null,
     category: 'PERSONAL_SAFETY',
-    priority: 'P1_CRITICAL',
-    status: 'CREATED',
-    lat: -24.6548,
-    lng: 25.9088,
     impact_g_force: 1.0,
-    ai_context: {
-      status: 'ANALYZED',
-      tags: ['DISTRESS_VOCAL', 'ELEVATED_HEART_RATE'],
-      model: 'DETERMINISTIC_DEMO',
-      confidence: 0.94,
-    },
+    ai_context: NO_AUDIO,
     acknowledged_by: null,
     acknowledged_at: null,
     assigned_to: null,
     assigned_at: null,
     dispatched_at: null,
     resolved_at: null,
-    client_event_id: '11111111-2222-3333-4444-555555555551',
-    source_capture_utc: new Date(now - 45000).toISOString(),
-    created_at: new Date(now - 45000).toISOString(),
-  },
-  {
+    client_event_id: null,
+    ...fields,
+    source_capture_utc: fields.created_at,
+  };
+}
+
+export const DEMO_INCIDENTS = /* @__PURE__ */ (() => [
+  incident({
+    id: 'a1b2c3d4-e5f6-4a1b-8c2d-000000000001',
+    user_id: 'b7e3c2a1-4d5f-4a8b-9c1e-2f3a4b5c6d71',
+    trusted_contact_phone: '+26771234567',
+    trigger_type: 'EXPLICIT_SOS',
+    priority: 'P1_CRITICAL',
+    status: 'CREATED',
+    lat: -24.6548,
+    lng: 25.9088,
+    ai_context: {
+      status: 'ANALYZED',
+      model: 'DETERMINISTIC_DEMO',
+      tags: ['Demo distress profile', 'Screaming (0.91)', 'Groan / Struggle (0.78)'],
+      confidence: 0.91,
+    },
+    created_at: ago(45000),
+  }),
+  incident({
     id: 'a1b2c3d4-e5f6-4a1b-8c2d-000000000002',
-    user_id: 'survivor_covert_0852',
+    user_id: '5f0a9c3e-8b2d-4e61-a7f4-1c9d2e3b4a85',
     trusted_contact_phone: '+26772345678',
     trigger_type: 'DURESS_PIN',
     category: 'GBV_DOMESTIC',
     priority: 'P1_CRITICAL',
     status: 'ACKNOWLEDGED',
-    lat: -24.6320,
-    lng: 25.9210,
-    impact_g_force: 1.0,
-    ai_context: {
-      status: 'SILENT_COERCION_DETECTED',
-      tags: ['DURESS_CODE_ENTERED', 'STEALTH_DISGUISE_ACTIVE'],
-      model: 'DETERMINISTIC_DEMO',
-      confidence: 0.99,
-    },
+    lat: -24.632,
+    lng: 25.921,
     acknowledged_by: 'DISP_GABORONE_01',
-    acknowledged_at: new Date(now - 80000).toISOString(),
-    assigned_to: 'UNIT_TOWNSHIP_03',
-    assigned_at: new Date(now - 60000).toISOString(),
-    dispatched_at: null,
-    resolved_at: null,
-    client_event_id: '11111111-2222-3333-4444-555555555552',
-    source_capture_utc: new Date(now - 120000).toISOString(),
-    created_at: new Date(now - 120000).toISOString(),
-  },
-  {
+    acknowledged_at: ago(80000),
+    created_at: ago(120000),
+  }),
+  incident({
     id: 'a1b2c3d4-e5f6-4a1b-8c2d-000000000003',
-    user_id: 'commuter_walk_03',
+    user_id: '2c8e4f6a-1b3d-4c5e-9f7a-8d6b4e2c0a19',
     trusted_contact_phone: '+26773456789',
     trigger_type: 'MOTION_IMPACT',
-    category: 'PERSONAL_SAFETY',
     priority: 'P2_HIGH',
     status: 'ASSIGNED',
     lat: -24.6582,
     lng: 25.9124,
     impact_g_force: 3.9,
-    ai_context: {
-      status: 'FALL_IMPACT_VERIFIED',
-      tags: ['HIGH_G_FORCE', 'RAPID_DECELERATION'],
-      model: 'DETERMINISTIC_DEMO',
-      confidence: 0.88,
-    },
     acknowledged_by: 'DISP_GABORONE_01',
-    acknowledged_at: new Date(now - 300000).toISOString(),
-    assigned_to: 'DISP_GABORONE_01',
-    assigned_at: new Date(now - 240000).toISOString(),
-    dispatched_at: null,
-    resolved_at: null,
-    client_event_id: '11111111-2222-3333-4444-555555555553',
-    source_capture_utc: new Date(now - 360000).toISOString(),
-    created_at: new Date(now - 360000).toISOString(),
-  },
-  {
+    acknowledged_at: ago(300000),
+    assigned_to: 'Patrol, Main Mall',
+    assigned_at: ago(240000),
+    created_at: ago(360000),
+  }),
+  incident({
     id: 'a1b2c3d4-e5f6-4a1b-8c2d-000000000004',
-    user_id: 'student_campus_04',
+    user_id: '9a1c3e5f-7b9d-4f2a-8c4e-6a8c0e2f4b63',
     trusted_contact_phone: '+26774567890',
     trigger_type: 'MISSED_CHECKIN',
-    category: 'PERSONAL_SAFETY',
     priority: 'P3_VERIFY',
     status: 'CREATED',
     lat: -24.6612,
     lng: 25.9322,
-    impact_g_force: 1.0,
-    ai_context: {
-      status: 'AWAITING_OR_BYPASSED',
-      tags: ['CHECKIN_WINDOW_EXPIRED'],
-      model: 'DETERMINISTIC_DEMO',
-      confidence: null,
-    },
-    acknowledged_by: null,
-    acknowledged_at: null,
-    assigned_to: null,
-    assigned_at: null,
-    dispatched_at: null,
-    resolved_at: null,
-    client_event_id: '11111111-2222-3333-4444-555555555554',
-    source_capture_utc: new Date(now - 500000).toISOString(),
-    created_at: new Date(now - 500000).toISOString(),
-  },
-  {
+    created_at: ago(500000),
+  }),
+  incident({
     id: 'a1b2c3d4-e5f6-4a1b-8c2d-000000000005',
-    user_id: 'station_pedestrian_05',
-    trusted_contact_phone: '+26775678901',
+    user_id: 'e4f6a8c0-2d4f-4b6d-8f0a-2c4e6a8c0d27',
     trigger_type: 'SHAKE_SOS',
-    category: 'PERSONAL_SAFETY',
-    priority: 'P2_HIGH',
+    priority: 'P1_CRITICAL',
     status: 'DISPATCHED',
     lat: -24.6592,
     lng: 25.9038,
     impact_g_force: 2.1,
-    ai_context: {
-      status: 'ANALYZED',
-      tags: ['RAPID_DEVICE_SHAKE', 'HAPTIC_CONFIRMED'],
-      model: 'DETERMINISTIC_DEMO',
-      confidence: 0.91,
-    },
     acknowledged_by: 'DISP_GABORONE_01',
-    acknowledged_at: new Date(now - 700000).toISOString(),
-    assigned_to: 'PATROL_STATION_02',
-    assigned_at: new Date(now - 640000).toISOString(),
-    dispatched_at: new Date(now - 580000).toISOString(),
-    resolved_at: null,
-    client_event_id: '11111111-2222-3333-4444-555555555555',
-    source_capture_utc: new Date(now - 750000).toISOString(),
-    created_at: new Date(now - 750000).toISOString(),
-  },
-];
+    acknowledged_at: ago(700000),
+    assigned_to: 'Patrol, station',
+    assigned_at: ago(640000),
+    dispatched_at: ago(580000),
+    created_at: ago(750000),
+  }),
+  incident({
+    id: 'a1b2c3d4-e5f6-4a1b-8c2d-000000000006',
+    user_id: '5f0a9c3e-8b2d-4e61-a7f4-1c9d2e3b4a85',
+    trusted_contact_phone: '+26772345678',
+    trigger_type: 'COVERT_SOS',
+    category: 'GBV_DOMESTIC',
+    priority: 'P1_CRITICAL',
+    status: 'RESOLVED',
+    lat: -24.6321,
+    lng: 25.9208,
+    acknowledged_by: 'DISP_GABORONE_02',
+    acknowledged_at: ago(3 * 86400000 - 60000),
+    assigned_to: 'Social worker, Broadhurst',
+    assigned_at: ago(3 * 86400000 - 300000),
+    dispatched_at: ago(3 * 86400000 - 600000),
+    resolved_at: ago(3 * 86400000 - 7200000),
+    created_at: ago(3 * 86400000),
+  }),
+])();
 
-export const DEMO_BREADCRUMBS = {
+export const DEMO_BREADCRUMBS = /* @__PURE__ */ (() => ({
   'a1b2c3d4-e5f6-4a1b-8c2d-000000000001': [
-    { lat: -24.6542, lng: 25.9080, captured_at_utc: new Date(now - 75000).toISOString() },
-    { lat: -24.6545, lng: 25.9084, captured_at_utc: new Date(now - 60000).toISOString() },
-    { lat: -24.6548, lng: 25.9088, captured_at_utc: new Date(now - 45000).toISOString() },
+    { lat: -24.6542, lng: 25.908, captured_at_utc: ago(75000) },
+    { lat: -24.6545, lng: 25.9084, captured_at_utc: ago(60000) },
+    { lat: -24.6548, lng: 25.9088, captured_at_utc: ago(45000) },
   ],
   'a1b2c3d4-e5f6-4a1b-8c2d-000000000003': [
-    { lat: -24.6575, lng: 25.9110, captured_at_utc: new Date(now - 400000).toISOString() },
-    { lat: -24.6580, lng: 25.9118, captured_at_utc: new Date(now - 380000).toISOString() },
-    { lat: -24.6582, lng: 25.9124, captured_at_utc: new Date(now - 360000).toISOString() },
+    { lat: -24.6575, lng: 25.911, captured_at_utc: ago(400000) },
+    { lat: -24.658, lng: 25.9118, captured_at_utc: ago(380000) },
+    { lat: -24.6582, lng: 25.9124, captured_at_utc: ago(360000) },
+  ],
+}))();
+
+const log = (id, action, actor_id, msAgo, client_metadata = {}) => ({
+  id,
+  action,
+  actor_id,
+  timestamp_utc: ago(msAgo),
+  client_metadata,
+});
+
+export const DEMO_LOGS = /* @__PURE__ */ (() => ({
+  'a1b2c3d4-e5f6-4a1b-8c2d-000000000001': [
+    log('d1-1', 'INCIDENT_CREATED', 'MOKGOSI_INGEST_ENGINE', 45000),
+    log('d1-2', 'TRUSTED_CONTACT_SKIPPED_NO_PROVIDER', 'MOKGOSI_TRUSTED_NOTIFIER', 44000),
+  ],
+  'a1b2c3d4-e5f6-4a1b-8c2d-000000000002': [
+    log('d2-1', 'INCIDENT_CREATED', 'MOKGOSI_INGEST_ENGINE', 120000),
+    log('d2-2', 'ESCALATION_NOTIFICATION_DISPATCHED', 'MOKGOSI_SAFE_NETWORK', 118000, { priority: 1 }),
+    log('d2-3', 'LIFECYCLE_ACKNOWLEDGED', 'DISP_GABORONE_01', 80000),
+    log('d2-4', 'TRUSTED_CONTACT_ACKNOWLEDGED', 'trusted contact 1', 70000),
+  ],
+}))();
+
+export const DEMO_HOTSPOTS = {
+  hotspots: [
+    { grid_lat: -24.655, grid_lng: 25.91, cell_size_meters: 500, category: 'PERSONAL_SAFETY', incident_count: 23, density_level: 'HIGH' },
+    { grid_lat: -24.66, grid_lng: 25.905, cell_size_meters: 500, category: 'PERSONAL_SAFETY', incident_count: 12, density_level: 'MEDIUM' },
+    { grid_lat: -24.63, grid_lng: 25.92, cell_size_meters: 500, category: 'GBV_DOMESTIC', incident_count: 11, density_level: 'MEDIUM' },
+    { grid_lat: -24.66, grid_lng: 25.93, cell_size_meters: 500, category: 'PERSONAL_SAFETY', incident_count: 6, density_level: 'LOW' },
   ],
 };

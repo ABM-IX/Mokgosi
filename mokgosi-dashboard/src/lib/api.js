@@ -1,33 +1,8 @@
 export const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-export const DEMO_MODE = String(import.meta.env.VITE_DEMO_MODE || 'false').toLowerCase() === 'true';
+// A plain comparison so the bundler can drop demo-only code and sample data from production builds.
+export const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
 export const DEFAULT_DEMO_TOKEN = import.meta.env.VITE_DEMO_RESPONDER_TOKEN || '';
 export const SLA_ACK_THRESHOLD_SECONDS = Number(import.meta.env.VITE_SLA_ACK_THRESHOLD_SECONDS || 60);
-
-/**
- * Configurable GBV & Personal Safety Responder Referral Directory.
- * Per project rules, no phone numbers or partner endorsements are invented;
- * entries remain clearly marked TODO until confirmed with official partners.
- */
-export const RESPONDER_REFERRAL_RESOURCES = [
-  {
-    id: 'bps-gbv',
-    name: 'Botswana Police Service — Gender & Child Protection Branch',
-    contact: 'TODO: confirm with Botswana Police Service GBV desk',
-    notes: 'Verify survivor safety and covert duress state before any external dispatch.',
-  },
-  {
-    id: 'gender-affairs',
-    name: 'Department of Gender Affairs — Crisis Support Referral',
-    contact: 'TODO: confirm with Department of Gender Affairs',
-    notes: 'Coordinate shelter & social-worker intake upon survivor request.',
-  },
-  {
-    id: 'ngo-shelter',
-    name: 'Accredited GBV Shelter & Legal Aid Partners',
-    contact: 'TODO: confirm with NGO partners',
-    notes: 'Provide signed Ed25519 evidence manifest only with explicit survivor consent.',
-  },
-];
 
 function authHeaders(accessToken, extra = {}) {
   const headers = { ...extra };
@@ -115,11 +90,14 @@ export async function fetchHotspots() {
 
 export async function fetchIncidentReferrals(incidentId, accessToken) {
   if (!incidentId || !accessToken) return { referrals: [] };
-  const res = await fetch(`${API_BASE}/api/v1/incidents/${incidentId}/referrals`, {
-    headers: authHeaders(accessToken),
-  });
-  if (!res.ok) return { referrals: [] };
-  return res.json();
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/incidents/${incidentId}/referrals`, {
+      headers: authHeaders(accessToken),
+    });
+    return res.ok ? res.json() : { referrals: [] };
+  } catch {
+    return { referrals: [] };
+  }
 }
 
 export async function postIncidentReferral(incidentId, partnerId, notes, accessToken) {

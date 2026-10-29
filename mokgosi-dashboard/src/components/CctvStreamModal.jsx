@@ -1,20 +1,14 @@
 import React, { useState } from 'react';
+import { DEMO_MODE } from '../lib/api.js';
 
 /**
- * Controlled Authorized CCTV Stream & Signed Snapshot Modal.
- * Embeds the opt-in camera feed (`<img>` MJPEG stream), handles stream
- * unavailability gracefully without blocking forensic snapshot signing,
- * and invokes `POST /api/v1/incidents/{id}/cctv-snapshot`.
+ * Live view of one opt-in camera near an incident, with a signed snapshot. The server only signs a
+ * frame from a camera within 150 m of the incident; opening this is written to the activity log.
  */
-export default function CctvStreamModal({
-  camera,
-  incidentId,
-  onClose,
-  onCaptureSnapshot,
-}) {
+export default function CctvStreamModal({ camera, onClose, onCaptureSnapshot }) {
   const [streamError, setStreamError] = useState(false);
   const [capturing, setCapturing] = useState(false);
-  const [captureResult, setCaptureResult] = useState(null);
+  const [result, setResult] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
 
   if (!camera) return null;
@@ -23,74 +17,60 @@ export default function CctvStreamModal({
     setCapturing(true);
     setErrorMsg('');
     try {
-      const res = await onCaptureSnapshot(camera.id);
-      setCaptureResult(res);
+      setResult(await onCaptureSnapshot(camera.id));
     } catch (err) {
-      setErrorMsg(err.message || 'Could not capture signed CCTV snapshot.');
+      setErrorMsg(err.message || 'The snapshot could not be saved.');
     } finally {
       setCapturing(false);
     }
   }
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Authorized CCTV Stream">
-      <div className="modal-card">
-        <div className="modal-header">
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={`Camera: ${camera.owner_name}`}>
+      <div className="modal">
+        <div className="modal-head">
           <div>
-            <h3>Authorized Opt-In CCTV · {camera.owner_name}</h3>
-            <small>
-              Distance: {Number(camera.distance_m || 0).toFixed(1)} m · Azimuth{' '}
-              {camera.azimuth_deg}° · FOV {camera.fov_deg}° · Retention: 72h max
-            </small>
+            <h2>{camera.owner_name}</h2>
+            <p className="card-note">
+              {Number(camera.distance_m || 0).toFixed(0)} m from the incident · facing {camera.azimuth_deg}° · footage kept
+              for 72 hours
+            </p>
           </div>
-          <button type="button" className="btn-ghost" onClick={onClose}>
-            ✕ Close
+          <button type="button" className="btn btn-quiet btn-small" onClick={onClose}>
+            Close
           </button>
         </div>
 
-        <div className="stream-viewport">
+        <div className="camera-view">
           {!streamError ? (
-            <img
-              src={camera.stream_url}
-              alt={`Authorized feed from ${camera.owner_name}`}
-              onError={() => setStreamError(true)}
-            />
+            <img src={camera.stream_url} alt={`Live view from ${camera.owner_name}`} onError={() => setStreamError(true)} />
           ) : (
-            <div className="stream-fallback">
-              <strong>Stream unavailable — signed snapshot still available</strong>
-              <p>
-                Live feed at <code>{camera.stream_url}</code> is not currently streaming. In{' '}
-                <code>DEMO_MODE</code>, capturing a snapshot signs a deterministic{' '}
-                <code>AUTHORIZED_CCTV_FRAME</code> forensic manifest.
-              </p>
-            </div>
+            <p>
+              No live picture from this camera right now.
+              {DEMO_MODE ? ' In demo mode, a placeholder frame is signed when you save a snapshot.' : ''}
+            </p>
           )}
         </div>
 
-        {errorMsg && <div className="notice">{errorMsg}</div>}
-
-        {captureResult?.manifest && (
-          <div className="snapshot-confirmation">
-            <b>✓ Signed CCTV Snapshot Sealed in Evidence Vault</b>
-            <code>SHA-256: {captureResult.manifest.media_sha256}</code>
-            <code>Ed25519: {captureResult.manifest.ed25519_signature}</code>
-            <small>
-              Key ID: {captureResult.manifest.public_key_id} · Provenance:{' '}
-              {captureResult.manifest.location_provenance}
-            </small>
-          </div>
+        {errorMsg && (
+          <p className="verify-result is-bad" role="alert">
+            {errorMsg}
+          </p>
+        )}
+        {result?.manifest && (
+          <p className="verify-result is-ok" role="status">
+            Snapshot saved and signed. Fingerprint <span className="mono">{String(result.manifest.media_sha256).slice(0, 16)}…</span>
+          </p>
         )}
 
-        <div className="modal-actions">
-          <span className="audit-note">
-            Audit logged: <code>OPEN_CCTV_STREAM</code> (Incident #{String(incidentId).slice(0, 8)})
-          </span>
-          <div className="actions">
-            <button type="button" onClick={handleCapture} disabled={capturing}>
-              {capturing ? 'Signing Frame…' : 'Capture Signed Snapshot (Ed25519)'}
-            </button>
-            <button type="button" className="muted" onClick={onClose}>
+        <div className="modal-foot">
+          <span className="card-note">Opening a camera is recorded in the activity log.</span>
+          <div className="row">
+            <button type="button" className="btn" onClick={onClose}>
               Done
+            </button>
+            <button type="button" className="btn btn-primary" disabled={capturing} onClick={handleCapture}>
+              {capturing ? 'Saving…' : 'Save signed snapshot'}
             </button>
           </div>
         </div>
@@ -98,4 +78,3 @@ export default function CctvStreamModal({
     </div>
   );
 }
-

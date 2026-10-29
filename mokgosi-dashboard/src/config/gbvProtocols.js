@@ -1,92 +1,77 @@
 /**
- * MOKGOSI GBV & SILENT ALERT RESPONDER PROTOCOLS
- * 
- * CRITICAL SAFETY REQUIREMENT:
- * Protocol text and partner contact procedures must be confirmed with accredited
- * organisations before production deployment.
- * 
- * TODO: confirm with partner organisations:
- * - Botswana Police Service (Gender & Child Protection Branch)
- * - Department of Gender Affairs (Ministry of Youth, Gender, Sport & Culture)
- * - Kagisano Women's Shelter Project
- * - Botswana GBV Prevention and Support Network (BGBVN)
- * - Legal Aid Botswana
+ * Response guidance shown to responders, and the referral organisations they can choose from.
+ *
+ * None of this has been agreed with the organisations yet. Until it is, every protocol is marked
+ * as draft and every partner stays `verified: false` with no contact number. Organisations to
+ * confirm with: Botswana Police Service (Gender & Child Protection Branch), Department of Gender
+ * Affairs, Kagisano Women's Shelter Project, Botswana GBV Prevention and Support Network, Legal Aid
+ * Botswana. See docs/PARTNERS_TODO.md.
  */
+
+const DRAFT = 'Draft guidance. Not yet agreed with partner organisations.';
 
 export const GBV_SAFETY_PROTOCOLS = {
   COVERT_DURESS: {
-    title: 'SILENT DURESS / COVERT ALERT PROTOCOL',
-    severity: 'CRITICAL_SAFETY_OVERRIDE',
+    title: 'Silent alerts',
     rules: [
-      'DO NOT initiate direct telephone calls or SMS messages to the survivor device.',
-      'The survivor may be within physical proximity or immediate earshot of a person causing harm.',
-      'The survivor handset displays a covert disguise surface (e.g. standard calculator or trip decoy). Inbound alerts destroy covert cover.',
-      'Coordinate exclusively through the survivor designated Safe Network (trusted contacts) or dispatch a silent welfare check according to local standard operating procedures.',
-      'Treat location as an approximation; respect private residential boundaries.',
+      'Do not phone, text or message the person’s phone.',
+      'Assume the person causing harm is nearby and may be watching the phone.',
+      'Work through the person’s trusted contacts, or send a discreet welfare check under your local procedure.',
+      'Treat the location as approximate, and take care near private homes.',
     ],
-    confirmationStatus: 'TODO: confirm with partner organisations',
+    confirmationStatus: DRAFT,
   },
   DOMESTIC_RESIDENCE: {
-    title: 'PRIVATE DOMESTIC RESIDENCE PROTOCOL',
-    severity: 'PRIVACY_PROTECTION',
+    title: 'Incidents at a home',
     rules: [
-      'Public CCTV cameras and cones are automatically suppressed for domestic/residential incidents.',
-      'Do not display public camera streams unless the incident occurs in a public right-of-way.',
-      'Preserve survivor-controlled evidence access; only survivor-shared dockets are viewable.',
+      'Public cameras near a home stay hidden unless the incident is on a public street.',
+      'Only look at evidence the person has chosen to share.',
     ],
-    confirmationStatus: 'TODO: confirm with partner organisations',
+    confirmationStatus: DRAFT,
   },
   ESCALATION_CHAIN: {
-    title: 'SAFE NETWORK PRIORITY ESCALATION',
+    title: 'Trusted contacts',
     description:
-      'Contacts are notified in order of priority (1 to 5). Each receives a signed, expiring acknowledgement link (/ack/{token}). If contact N fails to acknowledge within the escalation window, notification escalates to contact N+1.',
-    confirmationStatus: 'TODO: confirm with partner organisations',
+      'Contacts are messaged in the order the person chose. Each message has a link the contact uses to say they are responding. If nobody responds in time, the next contact is messaged.',
+    confirmationStatus: DRAFT,
   },
 };
 
 export const VERIFIED_REFERRAL_PARTNERS = [
   {
     id: 'bps-gbv-desk',
-    name: 'Botswana Police Service — Gender & Child Protection Desk',
+    name: 'Botswana Police Service, Gender & Child Protection',
     type: 'POLICE',
     region: 'National',
-    phone: 'TODO: verify official desk number',
-    hours: '24/7',
+    phone: null,
     verified: false,
-    verified_source: 'National Police Service Registry (pending formal MOU)',
-    notes: 'Silent welfare check protocol must be requested for covert alerts.',
+    notes: 'Ask for a discreet welfare check when the alert was silent.',
   },
   {
     id: 'dept-gender-affairs',
-    name: 'Department of Gender Affairs — Crisis Coordination',
+    name: 'Department of Gender Affairs',
     type: 'GBV_DESK',
-    region: 'Gaborone / Central',
-    phone: 'TODO: verify official hotline',
-    hours: '07:30 - 16:30 M-F',
+    region: 'Gaborone',
+    phone: null,
     verified: false,
-    verified_source: 'Government Directory (pending operational agreement)',
-    notes: 'Coordinates social work intake, temporary shelter placement, and counselling.',
+    notes: 'Social work intake, temporary shelter and counselling.',
   },
   {
     id: 'kagisano-shelter',
     name: 'Kagisano Women’s Shelter Project',
     type: 'SHELTER',
-    region: 'South / Gaborone',
-    phone: 'TODO: verify official helpline',
-    hours: '24/7 Crisis Helpline',
+    region: 'Gaborone',
+    phone: null,
     verified: false,
-    verified_source: 'NGO Coordination Registry (pending MOU)',
-    notes: 'Emergency safe housing, psycho-social support, and crisis counselling.',
+    notes: 'Safe accommodation and crisis counselling.',
   },
   {
     id: 'legal-aid-bw',
-    name: 'Legal Aid Botswana — GBV Support Services',
+    name: 'Legal Aid Botswana',
     type: 'LEGAL',
     region: 'National',
-    phone: 'TODO: verify official intake line',
-    hours: '08:00 - 17:00 M-F',
+    phone: null,
     verified: false,
-    verified_source: 'Statutory Body Registry (pending verification)',
-    notes: 'Assistance with restraining orders, protective custody, and court filings.',
+    notes: 'Protection orders and court filings.',
   },
 ];

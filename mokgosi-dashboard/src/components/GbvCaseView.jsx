@@ -1,17 +1,24 @@
 import React, { useState } from 'react';
 import { GBV_SAFETY_PROTOCOLS, VERIFIED_REFERRAL_PARTNERS } from '../config/gbvProtocols.js';
+import { AUDIT_LABEL, STATUS_LABEL, TRIGGER_LABEL, clockTime, dateTime, isCovert, label } from '../lib/labels.js';
 import TacticalMap from './TacticalMap.jsx';
 
-/**
- * Pillar B: Dedicated GBV Response Case Console.
- * Enforces strict survivor privacy, silent duress overrides, safe network status,
- * non-fabricated referral handoffs, pattern signals, and domestic CCTV suppression.
- */
+const CONTACT_ACTIONS = new Set([
+  'ESCALATION_NOTIFICATION_DISPATCHED',
+  'TRUSTED_CONTACT_ALERTED',
+  'TRUSTED_CONTACT_ACKNOWLEDGED',
+  'TRUSTED_CONTACT_FAILED',
+  'TRUSTED_CONTACT_DEMO_LOGGED',
+  'TRUSTED_CONTACT_SKIPPED_NO_PROVIDER',
+  'TRUSTED_CONTACT_NOT_CONFIGURED',
+]);
+const NOT_SENT_ACTIONS = new Set(['TRUSTED_CONTACT_DEMO_LOGGED', 'TRUSTED_CONTACT_SKIPPED_NO_PROVIDER']);
+
+/** Case view for gender-based violence incidents. The do-not-contact warning sits above it, in IncidentSummary. */
 export default function GbvCaseView({
   incident,
   allIncidents = [],
   consents,
-  notifications = [],
   referrals = [],
   manifests = [],
   logs = [],
@@ -21,293 +28,189 @@ export default function GbvCaseView({
   onOpenDocket,
   onOpenCameraStream,
 }) {
-  const [selectedPartnerId, setSelectedPartnerId] = useState(
-    VERIFIED_REFERRAL_PARTNERS[0]?.id || '',
-  );
-  const [referralNotes, setReferralNotes] = useState('');
-  const [submittingReferral, setSubmittingReferral] = useState(false);
-  const [referralSuccessMsg, setReferralSuccessMsg] = useState('');
-  const [showDomesticCctv, setShowDomesticCctv] = useState(false);
+  const [partnerId, setPartnerId] = useState(VERIFIED_REFERRAL_PARTNERS[0]?.id || '');
+  const [notes, setNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [saved, setSaved] = useState('');
+  const [showMap, setShowMap] = useState(false);
 
-  const isDuressOrCovert =
-    incident.trigger_type === 'DURESS_PIN' ||
-    incident.trigger_type === 'COVERT_SOS' ||
-    incident.trigger_type === 'SHAKE_SOS';
+  const covert = isCovert(incident);
+  const contactBlocked = covert || !consents || consents.responder_contact === false;
+  const earlier = allIncidents
+    .filter((i) => i.user_id === incident.user_id && i.id !== incident.id)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  const contactEvents = logs.filter((log) => CONTACT_ACTIONS.has(log.action));
+  const smsNotSetUp = contactEvents.some((log) => NOT_SENT_ACTIONS.has(log.action));
+  const isHome = incident.category === 'GBV_DOMESTIC';
+  const partnerName = (id) => VERIFIED_REFERRAL_PARTNERS.find((p) => p.id === id)?.name || id;
 
-  const responderContactBlocked =
-    isDuressOrCovert || (consents && consents.responder_contact === false);
-
-  // Repeat-incident pattern signal
-  const pastIncidents = allIncidents.filter(
-    (i) => i.user_id === incident.user_id && i.id !== incident.id,
-  );
-  const totalCountForUser = pastIncidents.length + 1;
-
-  async function handleReferralSubmit(e) {
+  async function handleReferral(e) {
     e.preventDefault();
-    if (!selectedPartnerId || !onRecordReferral) return;
-    setSubmittingReferral(true);
-    setReferralSuccessMsg('');
+    if (!partnerId || !onRecordReferral) return;
+    setSubmitting(true);
+    setSaved('');
     try {
-      await onRecordReferral(selectedPartnerId, referralNotes);
-      setReferralNotes('');
-      setReferralSuccessMsg('Referral handoff recorded and added to audit trail.');
+      await onRecordReferral(partnerId, notes);
+      setNotes('');
+      setSaved('Referral recorded in the activity log.');
     } catch {
-      // Error handled upstream
+      // The console shows the error banner.
     } finally {
-      setSubmittingReferral(false);
+      setSubmitting(false);
     }
   }
 
-  const isDomestic = incident.category === 'GBV_DOMESTIC';
-
   return (
-    <div className="gbv-case-view">
-      {/* 1. Category & Consent Flags Up Front */}
-      <div className="panel gbv-flags-panel">
-        <div className="flags-header">
-          <div>
-            <span className="badge badge-gbv">
-              {incident.category ? incident.category.replace('_', ' ') : 'GBV CASE'}
-            </span>
-            <span className="badge badge-duress">{incident.trigger_type}</span>
-            {responderContactBlocked && (
-              <span className="badge badge-override">
-                STRICT SILENT PROTOCOL: DIRECT CONTACT PROHIBITED
-              </span>
-            )}
+    <>
+      <div className="grid-2">
+        <section className="card" aria-label="Consent">
+          <div className="card-head">
+            <h2>What they have agreed to</h2>
           </div>
-          <small className="anon-id">
-            Anonymous Device ID: <code>{incident.user_id}</code>
-          </small>
-        </div>
+          <dl className="facts">
+            <dt>Location</dt>
+            <dd>{consents?.location === false ? 'Not shared' : 'Shared during alerts'}</dd>
+            <dt>Audio</dt>
+            <dd>{consents?.audio ? 'Recording allowed' : 'Not allowed'}</dd>
+            <dt>Contact from responders</dt>
+            <dd>{contactBlocked ? (covert ? 'Not allowed (silent alert)' : 'Not allowed') : 'Allowed'}</dd>
+            <dt>Evidence</dt>
+            <dd>{consents?.share_evidence ? 'Shared for this case' : 'Not shared'}</dd>
+          </dl>
+          {!consents && <p className="card-note">Their settings could not be loaded, so the safest defaults are shown.</p>}
+        </section>
 
-        <div className="consents-row" aria-label="Survivor Consents">
-          <div className={`consent-pill ${consents?.location !== false ? 'granted' : 'denied'}`}>
-            <span className="dot">●</span> Location: {consents?.location !== false ? 'Granted' : 'Denied'}
+        <section className="card" aria-label="Trusted contacts">
+          <div className="card-head">
+            <h2>Trusted contacts</h2>
           </div>
-          <div className={`consent-pill ${consents?.audio ? 'granted' : 'denied'}`}>
-            <span className="dot">●</span> Audio Telemetry: {consents?.audio ? 'Consented' : 'Withheld (Default)'}
-          </div>
-          <div className={`consent-pill ${!responderContactBlocked ? 'granted' : 'denied'}`}>
-            <span className="dot">●</span> Direct Responder Contact:{' '}
-            {!responderContactBlocked ? 'Permitted' : 'BLOCKED / OVERRIDDEN'}
-          </div>
-          <div className={`consent-pill ${consents?.share_evidence ? 'granted' : 'denied'}`}>
-            <span className="dot">●</span> Evidence Sharing:{' '}
-            {consents?.share_evidence ? 'Consented for Case' : 'Private to Survivor'}
-          </div>
-        </div>
-      </div>
-
-      {/* 2. Protocol Card (Overrides direct contact suggestion) */}
-      <div className="panel protocol-card" role="alert">
-        <div className="protocol-title-row">
-          <h3>⚠️ {GBV_SAFETY_PROTOCOLS.COVERT_DURESS.title}</h3>
-          <span className="protocol-todo">
-            {GBV_SAFETY_PROTOCOLS.COVERT_DURESS.confirmationStatus}
-          </span>
-        </div>
-        <div className="protocol-alert-banner">
-          <strong>CRITICAL SAFETY DIRECTIVE: DO NOT CALL OR MESSAGE THE SURVIVOR.</strong>
-          <p>
-            The survivor triggered this alert covertly (Duress PIN or silent gesture). Their handset
-            displays a neutral disguise (e.g. working calculator). An inbound call or SMS risks
-            exposing the survivor to immediate violence.
-          </p>
-        </div>
-        <ul className="protocol-rules">
-          {GBV_SAFETY_PROTOCOLS.COVERT_DURESS.rules.map((rule, idx) => (
-            <li key={idx}>{rule}</li>
-          ))}
-        </ul>
-      </div>
-
-      {/* 3. Safe Network Escalation Status */}
-      <div className="panel safe-network-panel">
-        <div className="section-title">
-          <h3>Safe Network Escalation Status</h3>
-          <span className="protocol-todo">
-            {GBV_SAFETY_PROTOCOLS.ESCALATION_CHAIN.confirmationStatus}
-          </span>
-        </div>
-        <p className="network-explainer">
-          Alert dispatches sequentially through the survivor-configured trusted contacts. Each SMS
-          contains a signed, expiring <code>/ack/{'{token}'}</code> link. If contact 1 does not
-          acknowledge within the escalation window, notification advances to contact 2.
-        </p>
-
-        <div className="escalation-timeline">
-          <div className="timeline-item acked">
-            <span className="badge badge-ack">Priority 1 (Primary)</span>
-            <div className="timeline-content">
-              <strong>{incident.trusted_contact_phone || '+267 ••• ••• (Configured Contact)'}</strong>
-              <small>Dispatched via dual-routing SMS with signed /ack token</small>
-            </div>
-            <span className="ack-status">ACKNOWLEDGED</span>
-          </div>
-
-          <div className="timeline-item standby">
-            <span className="badge badge-standby">Priority 2 (Secondary)</span>
-            <div className="timeline-content">
-              <strong>Support Network Member / Neighbour</strong>
-              <small>Standby queue — escalates if primary contact does not respond</small>
-            </div>
-            <span className="standby-status">STANDBY</span>
-          </div>
-        </div>
-      </div>
-
-      {/* 4. Pattern Signal & Repeat Incident History */}
-      <div className="panel pattern-panel">
-        <h3>Survivor Pattern Signal (Historical Continuity)</h3>
-        <div className="pattern-badge-row">
-          <span className={`pattern-tag ${totalCountForUser > 1 ? 'repeat-alert' : 'first-alert'}`}>
-            {totalCountForUser > 1
-              ? `⚠️ Repeat Incident Signal: ${totalCountForUser} incidents recorded for this device identity`
-              : 'Initial Incident Recorded for this Device Identity'}
-          </span>
-        </div>
-
-        {pastIncidents.length > 0 && (
-          <div className="pattern-history-list">
-            <small>Prior Timeline for Device #{incident.user_id.slice(0, 8)}:</small>
-            <ul>
-              {pastIncidents.map((p) => (
-                <li key={p.id}>
+          {contactEvents.length > 0 ? (
+            <ul className="list-plain">
+              {contactEvents.map((log) => (
+                <li key={log.id}>
                   <span>
-                    Incident #{p.id.slice(0, 8)} · {p.trigger_type} ({p.category || 'GBV'})
+                    {label(AUDIT_LABEL, log.action)}
+                    {log.client_metadata?.priority ? ` · contact ${log.client_metadata.priority}` : ''}
                   </span>
-                  <span>{new Date(p.created_at).toLocaleString()}</span>
-                  <span className="status-tag">{p.status}</span>
+                  <span className="faint num">{clockTime(log.timestamp_utc)}</span>
                 </li>
               ))}
             </ul>
-          </div>
-        )}
+          ) : (
+            <p className="muted">No record yet of a trusted contact being messaged about this alert.</p>
+          )}
+          {smsNotSetUp && <p className="card-note">SMS delivery is not set up on the server, so no message was sent.</p>}
+          <p className="card-note">{GBV_SAFETY_PROTOCOLS.ESCALATION_CHAIN.description}</p>
+        </section>
       </div>
 
-      {/* 5. Referral Panel (Non-Fabricated Directory) */}
-      <div className="panel referral-panel">
-        <div className="section-title">
-          <h3>Accredited Referral Handoff (Responder Action)</h3>
-          <span className="protocol-todo">TODO: confirm with partner organisations</span>
+      <section className="card" aria-label="Earlier alerts">
+        <div className="card-head">
+          <h2>Earlier alerts from this person</h2>
+          {earlier.length > 0 && <span className="card-note">{earlier.length} before this one</span>}
         </div>
-        <p className="referral-explainer">
-          Record referral handoffs to accredited support entities. All referral actions are
-          immutably recorded in the append-only evidence audit log.
-        </p>
-
-        {referralSuccessMsg && (
-          <div className="notice success-notice" role="status">
-            {referralSuccessMsg}
-          </div>
+        {earlier.length > 0 ? (
+          <ul className="list-plain">
+            {earlier.map((past) => (
+              <li key={past.id}>
+                <span>{label(TRIGGER_LABEL, past.trigger_type)}</span>
+                <span className="muted">
+                  {label(STATUS_LABEL, past.status)} · {dateTime(past.created_at)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted">This is the first alert from this person.</p>
         )}
+      </section>
 
-        <form className="referral-form" onSubmit={handleReferralSubmit}>
-          <div className="form-group">
-            <label htmlFor="partner-select">Target Support Partner (Verified Directory):</label>
-            <select
-              id="partner-select"
-              value={selectedPartnerId}
-              onChange={(e) => setSelectedPartnerId(e.target.value)}
-            >
+      <section className="card" aria-label="Referral">
+        <div className="card-head">
+          <h2>Refer to a support organisation</h2>
+          <span className="card-note">None of these organisations has confirmed its details yet.</span>
+        </div>
+        <form className="field" onSubmit={handleReferral}>
+          <label className="field">
+            <span>Organisation</span>
+            <select id="partner-select" value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
               {VERIFIED_REFERRAL_PARTNERS.map((partner) => (
                 <option key={partner.id} value={partner.id}>
-                  {partner.name} ({partner.type} · {partner.region})
+                  {partner.name}
+                  {partner.verified ? '' : ' (not yet verified)'}
                 </option>
               ))}
             </select>
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="referral-notes">Referral Case Notes / Handoff Summary:</label>
+          </label>
+          <label className="field">
+            <span>Handover notes</span>
             <textarea
               id="referral-notes"
               rows={2}
-              value={referralNotes}
-              onChange={(e) => setReferralNotes(e.target.value)}
-              placeholder="e.g. Coordinated intake with social worker; safe accommodation requested..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="For example: asked for safe accommodation; one child with them."
             />
+            <span className="field-hint">Referrals are added to the activity log and cannot be edited afterwards.</span>
+          </label>
+          <div className="row">
+            <button type="submit" className="btn btn-primary" disabled={submitting || !partnerId}>
+              {submitting ? 'Recording…' : 'Record referral'}
+            </button>
+            {saved && (
+              <span className="muted" role="status">
+                {saved}
+              </span>
+            )}
           </div>
-
-          <button
-            type="submit"
-            className="btn-accent"
-            disabled={submittingReferral || !selectedPartnerId}
-          >
-            {submittingReferral ? 'Recording Referral...' : 'Record Formal Referral & Log Audit'}
-          </button>
         </form>
-
         {referrals.length > 0 && (
-          <div className="past-referrals-list">
-            <h4>Previously Recorded Referrals for Incident #{incident.id.slice(0, 8)}:</h4>
-            <ul>
-              {referrals.map((ref) => (
-                <li key={ref.id}>
-                  <strong>{ref.partner_id}</strong> · Referred by {ref.referred_by} at{' '}
-                  {new Date(ref.referred_at).toLocaleTimeString()}
-                  {ref.notes && <div>“{ref.notes}”</div>}
-                </li>
-              ))}
-            </ul>
-          </div>
+          <ul className="list-plain">
+            {referrals.map((ref) => (
+              <li key={ref.id}>
+                <span>
+                  {partnerName(ref.partner_id)}
+                  {ref.notes ? <span className="muted"> · “{ref.notes}”</span> : null}
+                </span>
+                <span className="faint">
+                  {ref.referred_by} · {clockTime(ref.referred_at)}
+                </span>
+              </li>
+            ))}
+          </ul>
         )}
-      </div>
+      </section>
 
-      {/* 6. Survivor-Shared Evidence Docket (Read-Only) */}
-      <div className="panel evidence-summary-panel">
-        <div className="section-title">
-          <h3>Survivor-Controlled Evidence Docket</h3>
-          <button type="button" className="btn-outline" onClick={onOpenDocket}>
-            Inspect Sealed Case Manifests ({manifests.length})
+      <section className="card" aria-label="Shared evidence">
+        <div className="card-head">
+          <h2>Shared evidence</h2>
+          <button type="button" className="btn btn-small" onClick={onOpenDocket}>
+            Open evidence
           </button>
         </div>
-        <p className="evidence-explainer">
-          Survivor retains full ownership. Media is stored in private encrypted storage and only
-          shared via explicit, signed case bundle tokens.
+        <p className="muted">
+          {manifests.length > 0
+            ? `${manifests.length} signed ${manifests.length === 1 ? 'record' : 'records'} attached to this incident.`
+            : 'Nothing has been shared. Evidence stays on the person’s phone unless they choose to share it.'}
         </p>
-      </div>
+      </section>
 
-      {/* 7. Tactical Map & CCTV Privacy Safeguard */}
-      {isDomestic ? (
-        <div className="panel cctv-suppression-panel">
-          <div className="cctv-suppressed-header">
-            <div>
-              <h3>Private Residential Boundaries (CCTV Suppressed)</h3>
-              <small>
-                Per Pillar B privacy rules, municipal CCTV cones are hidden for domestic addresses.
-              </small>
-            </div>
-            <button
-              type="button"
-              className="btn-ghost"
-              onClick={() => setShowDomesticCctv((prev) => !prev)}
-            >
-              {showDomesticCctv
-                ? 'Hide Camera Cones (Domestic Privacy)'
-                : 'Reveal Camera Cones (If Public Street Incident)'}
+      {isHome && !showMap ? (
+        <section className="card" aria-label="Location">
+          <div className="card-head">
+            <h2>Location</h2>
+            <button type="button" className="btn btn-small" onClick={() => setShowMap(true)}>
+              Show map and cameras
             </button>
           </div>
-
-          {showDomesticCctv && (
-            <TacticalMap
-              incident={incident}
-              locations={locations}
-              cameras={cameras}
-              onOpenCameraStream={onOpenCameraStream}
-            />
-          )}
-        </div>
+          <p className="muted">
+            This may be a home address, so the map and nearby cameras are hidden until you open them. Open them only
+            if the incident is on a public street.
+          </p>
+        </section>
       ) : (
-        <TacticalMap
-          incident={incident}
-          locations={locations}
-          cameras={cameras}
-          onOpenCameraStream={onOpenCameraStream}
-        />
+        <TacticalMap incident={incident} locations={locations} cameras={cameras} onOpenCameraStream={onOpenCameraStream} />
       )}
-    </div>
+    </>
   );
 }
