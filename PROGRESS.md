@@ -12,6 +12,12 @@ Baseline before changes: backend pytest 42/42, `flutter test` 27/27, `npm test` 
 | 4. Honest live mode | **Not started.** The dashboard bundle still contains the demo password. The safe-network panel is hard-coded "ACKNOWLEDGED". There is no `create_responder.py`. |
 | 5. Real DB proof | **Not started.** It needs a Postgres connection string, which was not provided. |
 
+**Design refresh (same branch):** the responder console and the mobile app were redesigned around plain language and one
+shared, light design system. Several screens claimed things that were not happening; those claims are now removed or
+labelled (details in the commit messages for `88bf8be` and `08cff78`). Verified: backend 50/50, `flutter analyze` clean,
+`flutter test` 29/29, `npm test` 11/11, `npm run build` clean; a production-style build contains no demo password, demo UI
+or sample data. All FNB hackathon framing was removed: Mokgosi is now a personal project.
+
 Live findings on 2026-10-29 (read-only probes): the Render backend reports `demo_mode: true`, and it **accepts the public demo token
 `mokgosi-demo-responder-secret-key-2026` as a responder credential** (HTTP 200; a garbage token gets 401). Fix in the Render dashboard:
 `DEMO_MODE=false` and an empty `DEMO_RESPONDER_TOKEN`.

@@ -18,7 +18,7 @@ A guided tour for showing Mokgosi to testers and prospective partner organisatio
    cd mokgosi-dashboard
    npm run dev
    ```
-   Open `http://localhost:5173`, authenticate with your responder session (or `DEMO_RESPONDER_TOKEN` when `VITE_DEMO_MODE=true`), and click **`🔊 Arm P1 Audio Alert`** in the top header.
+   Open `http://localhost:5173`, authenticate with your responder session (or `DEMO_RESPONDER_TOKEN` when `VITE_DEMO_MODE=true`), and click **`Sound for critical alerts: off`** in the top bar to turn sound on.
 3. **Launch Flutter Mobile App** (`mokgosi-mobile/`):
    ```powershell
    cd mokgosi-mobile
@@ -51,47 +51,47 @@ A guided tour for showing Mokgosi to testers and prospective partner organisatio
 4. **Command Console GBV Case View:**
    - The dashboard alerts in $< 1\text{ second}$ and automatically activates the **GBV Response** pillar tab.
    - Point out the prominent **Protocol Card**:
-     **`⚠️ SILENT ALERT PROTOCOL: DO NOT CALL OR MESSAGE THE SURVIVOR.`**
+     **`Do not call or text this person`**
      *Direct outreach is blocked by system policy because the survivor may be in earshot of an abuser.*
    - Point out the **Consents Banner**: Location granted, Audio withheld by default, Direct contact blocked.
    - Point out the **Survivor Pattern Signal**: *"Repeat Incident Signal: 2 incidents on record for this device identity."*
    - Point out that **Municipal CCTV is hidden by default** to protect domestic residential privacy.
 5. **Accredited Referral Handoff:**
-   - Select **`Kagisano Women's Shelter Project`** in the Referral Panel, type *"Safe accommodation requested; child with survivor"*, and click **`Record Formal Referral & Log Audit`**.
+   - Select **`Kagisano Women's Shelter Project`** in the Referral Panel, type *"Safe accommodation requested; child with survivor"*, and click **`Record referral`**.
    - Referral is logged immutably to `incident_referrals` and added to the audit trail.
 6. **Survivor Evidence Mode (Documenting Harm):**
-   - Enter Safe PIN **`2580=`** to open Mokgosi $\rightarrow$ tap **`Evidence Vault`**.
-   - Show silent capture buttons (*Record Audio*, *Take Photo*, *Write Note*).
-   - Select 2 documented entries $\rightarrow$ tap **`Create Case Bundle`** $\rightarrow$ select *Legal Aid* $\rightarrow$ generates a cryptographically signed ZIP bundle with SHA-256 manifests, an Ed25519 signature, and `verify_manifest.py`.
+   - Enter Safe PIN **`2580=`** to open Mokgosi $\rightarrow$ open **`Support`** $\rightarrow$ tap **`Journal`**.
+   - Tap **`Write a note`**. (*Sample recording* and *Sample photo* appear in demo builds only and add placeholders: real capture is not built yet.)
+   - Select 2 documented entries $\rightarrow$ tap **`Share`** $\rightarrow$ choose *Lawyer or legal aid* $\rightarrow$ **`Create link`** $\rightarrow$ generates a cryptographically signed ZIP bundle with SHA-256 manifests, an Ed25519 signature, and `verify_manifest.py`.
 
 ---
 
 ## 3. On the move: a timed walk
 
 1. **Active Escort:**
-   - In Mokgosi, tap **`Getting Around Safely`** $\rightarrow$ tap **`Start 30 Second Escort`**.
-   - Tap **`Check In Now`** to trigger the 15-second haptic check-in window.
+   - In Mokgosi, open **`Getting around`** $\rightarrow$ tap **`Start a 30-second walk`**.
+   - Tap **`Check in now`** to open the 15-second "Are you OK?" check.
    - Enter Safe PIN **`2580`** to confirm arrival cleanly.
 2. **Impact Detection & Man-Down Fall:**
-   - In the mobile rehearsal drawer, trigger **`Simulate Physical Impact (4.2g)`** and let the check-in timeout.
+   - Open **`Demo tools`** (demo builds only), tap **`Simulate a hard impact (4.2 g)`** and let the check-in time out.
    - A `P1_CRITICAL` alert dispatches to the **Safer Communities** console.
 3. **Authorized 150m CCTV Mesh:**
-   - Switch console to **`Safer Communities`** $\rightarrow$ Tactical Map displays the pulsing incident pin and authorized camera cones (`Gaborone CBD SafeCity Pole #04`).
-   - Click **`Open Authorized Stream & Snapshot`** $\rightarrow$ captures frame and signs with persistent Ed25519 private key.
-   - In the Evidence Docket, click **`Verify Signature (Ed25519)`** $\rightarrow$ **`✓ VALID`**.
-   - Click **`Simulate 1-Byte Tamper Test`** $\rightarrow$ **`✗ INVALID`** (cryptographic rejection).
+   - Switch the console to **`Public safety`** $\rightarrow$ the incident view shows the location, the 150 m circle and nearby opt-in cameras.
+   - Click **`View camera`** $\rightarrow$ **`Save signed snapshot`** (signed with the server's Ed25519 key).
+   - In **`Evidence and activity log`**, click **`Check signature`** $\rightarrow$ *Signature valid*.
+   - Click **`Test with a changed copy`** $\rightarrow$ *The changed copy was rejected, as it should be.*
 4. **Community Hotspots View (Spatial Insight with Privacy):**
-   - Click **`Community Hotspots & Density (Aggregated)`**.
-   - Show the coarse ~500m grid table. Point out the **K-Anonymity Privacy Guarantee**: cells under 5 incidents are strictly suppressed. No personal coordinates or survivor identities are ever exposed.
+   - Click **`Area trends`**.
+   - Show the ~500 m areas. Areas with fewer than 5 incidents (10 for GBV) are left out, so no person or home can be picked out.
 
 ---
 
 ## 4. No signal
 
 1. **Airplane / Offline Mode Rehearsal:**
-   - In the mobile rehearsal drawer, toggle **`Simulate Airplane / Offline Mode`** ON.
+   - In **`Demo tools`**, turn on **`Pretend there’s no signal`**.
    - Tap **`Send SOS`**.
-   - Highlight: **No false "sent" message**. The app states: *"Queued — no signal. Retrying automatically; SMS fallback triggered."*
+   - Highlight: **no false "sent" message**. The app says the alert is queued and will send by itself, and opens the SMS app if a trusted number is set.
    - Toggle offline mode OFF: the queued alert immediately flushes and arrives at the command center with zero duplication.
 2. **Independent Routing Invariant:**
    - Emphasize: Even if the database crashes or AI is offline, the Trusted Network SMS fallback and the Command Center alerts fire independently. Neither path gates or cancels the other.

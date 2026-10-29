@@ -55,21 +55,20 @@ Mokgosi is an emergency dispatch and civic protection system built on a shared, 
 
 ## 🔑 Test & Demonstration Credentials
 
-### 1. Dashboard CAD Console (First Responder / Dispatcher)
+### 1. Responder console (dashboard)
 - **URL:** [https://mokgosi-dashboard.onrender.com](https://mokgosi-dashboard.onrender.com)
-- **Action:** Open URL to view the public landing page. Click **"Auto-Fill Demo Dispatcher Credentials"** or enter:
-  - **Operator ID:** `DISP_GABORONE_01`
-  - **Password:** `MokgosiCAD2026!`
-- **Result:** Grants access to the CAD Live Map, Realtime Incident Queue, PostGIS 150m CCTV matching, and Referral Partner handoff tool.
+- **Live mode:** sign in with a Supabase Auth user whose `app_metadata.role` is `responder`. There is no shared password.
+- **Demo mode** (`VITE_DEMO_MODE=true`, no Supabase configured): sign in with any name and no password to explore sample data.
+  Backend calls need `VITE_DEMO_RESPONDER_TOKEN` to match the backend's `DEMO_RESPONDER_TOKEN`; nothing is hard-coded.
+- **Result:** the incident list, incident view with progress steps, city map, area trends, nearby opt-in cameras and referrals.
 
 ### 2. Mobile App (Citizen / Survivor)
 - **Sign In Tab:**
   - **Email:** `citizen@mokgosi.org`
   - **Password:** `DemoCitizen2026!`
-  - *(Or tap the **"Demo Auto-fill"** quick action button on the sign-in card).*
-- **Covert Emergency Guest Access (No Account):**
-  - Tap **"Quick Emergency Access (No Account)"** on the login screen.
-  - Grants immediate SOS and escort protection without saving accounts or credentials to device storage.
+  - *(Demo builds only: tap **"Fill in demo details"** on the sign-in card.)* This login is not checked against any server yet; pre-deploy item 3 replaces it.
+- **Without an account:**
+  - Tap **"Continue without an account"** on the login screen.
 - **Calculator Covert Unlock:**
   - **Safe PIN:** Type `2580=` to unlock the full Mokgosi user interface.
   - **Duress PIN:** Type `0852=` to silently dispatch an emergency alert while keeping the calculator visible.
