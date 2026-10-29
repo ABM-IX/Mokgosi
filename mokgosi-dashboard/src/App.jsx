@@ -11,12 +11,16 @@ import {
   fetchIncidentReferrals,
   postIncidentReferral,
   fetchSurvivorConsents,
+  fetchCameras,
 } from './lib/api.js';
 import { AUDIT_LABEL, actorLabel, clockTime, humanize, label } from './lib/labels.js';
+import { useTheme } from './lib/theme.js';
+import { camerasNear } from './lib/geo.js';
+import Icon from './components/Icons.jsx';
+import AlertBanner from './components/AlertBanner.jsx';
 import HeaderBar from './components/HeaderBar.jsx';
 import IncidentQueue, { isGbvIncident, sortIncidentsByUrgency } from './components/IncidentQueue.jsx';
 import IncidentSummary from './components/IncidentSummary.jsx';
-import TacticalMap from './components/TacticalMap.jsx';
 import LiveOperationsMap from './components/LiveOperationsMap.jsx';
 import CctvStreamModal from './components/CctvStreamModal.jsx';
 import EvidenceDocketModal from './components/EvidenceDocketModal.jsx';
@@ -126,14 +130,47 @@ function RecentActivity({ logs, onOpen }) {
   );
 }
 
+function NearbyCameras({ cameras, onOpen }) {
+  return (
+    <section className="card" aria-label="Nearby cameras">
+      <div className="card-head">
+        <h2>Cameras near this incident</h2>
+        <span className="card-note">Opt-in, within 150 m</span>
+      </div>
+      {cameras.length === 0 ? (
+        <p className="muted">No opt-in cameras are online within 150 m of this incident.</p>
+      ) : (
+        <ul className="camera-list">
+          {cameras.map((cam) => (
+            <li key={cam.id}>
+              <span className="camera-name">
+                <Icon name="camera" size={16} />
+                <span>
+                  {cam.owner_name}
+                  <span className="faint"> · {Math.round(cam.distance_m)} m away</span>
+                </span>
+              </span>
+              <button type="button" className="btn btn-small" onClick={() => onOpen(cam)}>
+                View
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 export default function App() {
   const [incidents, setIncidents] = useState([]);
   const [selected, setSelected] = useState(null);
   const [activeTab, setActiveTab] = useState('ACTIVE');
   const [activePillar, setActivePillar] = useState('SAFER_COMMUNITIES');
-  const [saferSubView, setSaferSubView] = useState('TACTICAL_MAP'); // 'TACTICAL_MAP' | 'LIVE_MAP' | 'HOTSPOTS'
+  const [saferSubView, setSaferSubView] = useState('MAP'); // 'MAP' | 'HOTSPOTS'
+  const { mode: themeMode, resolved: theme, setMode: setThemeMode } = useTheme();
 
-  const [cameras, setCameras] = useState([]);
+  const [registry, setRegistry] = useState([]);
+  const [rpcCameras, setRpcCameras] = useState([]);
   const [locations, setLocations] = useState([]);
   const [logs, setLogs] = useState([]);
   const [manifests, setManifests] = useState([]);
@@ -183,12 +220,21 @@ export default function App() {
     return () => sub?.subscription?.unsubscribe();
   }, []);
 
+  // Every consented, online camera, for the city map. The server only returns these to signed-in responders.
+  useEffect(() => {
+    if (!operatorId) return undefined;
+    let live = true;
+    fetchCameras(sessionToken).then((list) => live && setRegistry(list));
+    return () => {
+      live = false;
+    };
+  }, [operatorId, sessionToken]);
+
   // 2. Incident list
   const refreshIncidents = useCallback(async () => {
     if (!supabase) {
       if (DEMO_MODE) {
         setIncidents(DEMO_INCIDENTS);
-        setCameras(DEMO_CAMERAS);
         setSelected((curr) => {
           if (curr) {
             const updated = DEMO_INCIDENTS.find((x) => x.id === curr.id);
@@ -268,7 +314,6 @@ export default function App() {
 
     if (!supabase) {
       if (DEMO_MODE) {
-        setCameras(DEMO_CAMERAS);
         setLocations(DEMO_BREADCRUMBS[selected.id] || []);
         setLogs(DEMO_LOGS[selected.id] || []);
         setManifests([]);
@@ -286,7 +331,7 @@ export default function App() {
         supabase.from('evidence_manifests').select('*').eq('incident_id', selected.id).order('server_receipt_utc', { ascending: true }),
       ]);
       if (!mounted) return;
-      setCameras(camRes.data || []);
+      setRpcCameras(camRes.data || []);
       setLocations(locRes.data || []);
       setLogs(logRes.data || []);
       setManifests(manRes.data || []);
@@ -459,9 +504,26 @@ export default function App() {
       setActivePillar('GBV_RESPONSE');
     } else {
       setActivePillar('SAFER_COMMUNITIES');
-      setSaferSubView('TACTICAL_MAP');
+      setSaferSubView('MAP');
     }
   }, []);
+
+  // The map shows the whole registry; the incident panel shows only what is within 150 m of the selection.
+  const registryAll = useMemo(() => {
+    const byId = new Map();
+    const base = DEMO_MODE && registry.length === 0 && rpcCameras.length === 0 ? DEMO_CAMERAS : [];
+    [...base, ...registry, ...rpcCameras].forEach((cam) => byId.set(cam.id, cam));
+    return [...byId.values()];
+  }, [registry, rpcCameras]);
+  const nearCameras = useMemo(
+    () => (selected ? camerasNear(registryAll, Number(selected.lat), Number(selected.lng), 150) : []),
+    [registryAll, selected],
+  );
+
+  const unackedCritical = incidents.filter((i) => i.priority === 'P1_CRITICAL' && i.status === 'CREATED').length;
+  useEffect(() => {
+    document.title = unackedCritical > 0 ? `(${unackedCritical}) Critical alert · Mokgosi` : 'Mokgosi · Responder console';
+  }, [unackedCritical]);
 
   if (!operatorId) {
     return <LandingPortal onSignIn={handleResponderSignIn} error={error} demoMode={DEMO_MODE} />;
@@ -469,64 +531,51 @@ export default function App() {
 
   const isPublic = activePillar === 'SAFER_COMMUNITIES';
   const selectedHere = selected && isGbvIncident(selected) !== isPublic ? selected : null;
-  const mapCameras = !DEMO_MODE || cameras.length > 0 ? cameras : DEMO_CAMERAS;
   const canAct = Boolean(sessionToken);
 
-  let body;
-  if (isPublic && saferSubView === 'HOTSPOTS') {
-    body = <HotspotsView />;
-  } else if (isPublic && saferSubView === 'LIVE_MAP') {
-    body = (
-      <LiveOperationsMap
-        incidents={incidents}
-        selectedId={selected?.id}
-        onSelectIncident={handleSelectIncident}
-        onLifecycle={handleLifecycle}
-        cameras={mapCameras}
-        onOpenCameraStream={handleOpenCameraModal}
-        activePillar={activePillar}
+  const incidentPanel = selectedHere ? (
+    <>
+      <IncidentSummary
+        incident={selectedHere}
+        canAct={canAct}
+        onLifecycle={(next) => handleLifecycle(next)}
+        onOpenEvidence={handleOpenDocketModal}
+        nowMs={nowMs}
       />
-    );
-  } else if (selectedHere) {
-    body = (
-      <>
-        <IncidentSummary
+      {isGbvIncident(selectedHere) ? (
+        <GbvCaseView
           incident={selectedHere}
-          canAct={canAct}
-          onLifecycle={(next) => handleLifecycle(next)}
-          onOpenEvidence={handleOpenDocketModal}
-          nowMs={nowMs}
+          allIncidents={incidents}
+          consents={survivorConsents}
+          referrals={incidentReferralsList}
+          manifests={manifests}
+          logs={logs}
+          cameras={nearCameras}
+          locations={locations}
+          theme={theme}
+          onRecordReferral={handleRecordReferral}
+          onOpenDocket={handleOpenDocketModal}
+          onOpenCameraStream={handleOpenCameraModal}
         />
-        {isGbvIncident(selectedHere) ? (
-          <GbvCaseView
-            incident={selectedHere}
-            allIncidents={incidents}
-            consents={survivorConsents}
-            referrals={incidentReferralsList}
-            manifests={manifests}
-            logs={logs}
-            cameras={cameras}
-            locations={locations}
-            onRecordReferral={handleRecordReferral}
-            onOpenDocket={handleOpenDocketModal}
-            onOpenCameraStream={handleOpenCameraModal}
-          />
-        ) : (
-          <>
-            <AudioContextCard incident={selectedHere} canAct={canAct} onSimulate={handleAcousticSimulation} />
-            <TacticalMap incident={selectedHere} locations={locations} cameras={cameras} onOpenCameraStream={handleOpenCameraModal} />
-            <RecentActivity logs={logs} onOpen={handleOpenDocketModal} />
-          </>
-        )}
-      </>
-    );
-  } else {
-    body = (
-      <p className="empty">
-        {isPublic ? 'Select an incident from the list.' : 'No GBV incident selected. New alerts appear here as they arrive.'}
-      </p>
-    );
-  }
+      ) : (
+        <>
+          <NearbyCameras cameras={nearCameras} onOpen={handleOpenCameraModal} />
+          <AudioContextCard incident={selectedHere} canAct={canAct} onSimulate={handleAcousticSimulation} />
+          <RecentActivity logs={logs} onOpen={handleOpenDocketModal} />
+        </>
+      )}
+    </>
+  ) : (
+    <div className="empty-state">
+      <Icon name={isPublic ? 'map' : 'shield'} size={28} />
+      <strong>{isPublic ? 'Nothing selected' : 'No GBV incident selected'}</strong>
+      <span>
+        {isPublic
+          ? 'Choose an incident from the list, or select one on the map.'
+          : 'New alerts appear in the list as they arrive. Choose one to see the case.'}
+      </span>
+    </div>
+  );
 
   return (
     <div className="console">
@@ -548,6 +597,8 @@ export default function App() {
         onPillarChange={handlePillarChange}
         saferCount={saferActiveCount}
         gbvCount={gbvActiveCount}
+        themeMode={themeMode}
+        onThemeChange={setThemeMode}
       />
 
       {DEMO_MODE && (
@@ -561,8 +612,9 @@ export default function App() {
           </button>
         </div>
       )}
+      <AlertBanner incidents={incidents} onOpen={handleSelectIncident} nowMs={nowMs} />
 
-      <div className="workspace">
+      <div className={`workspace ${isPublic ? 'is-public' : 'is-gbv'}`}>
         <IncidentQueue
           incidents={incidents}
           selectedId={selected?.id}
@@ -572,24 +624,45 @@ export default function App() {
           activePillar={activePillar}
         />
 
-        <section className="detail" aria-label="Incident details">
-          <div className="detail-inner">
-            {isPublic && (
-              <div className="tabs view-tabs" role="tablist" aria-label="View">
-                <button type="button" role="tab" aria-selected={saferSubView === 'TACTICAL_MAP'} onClick={() => setSaferSubView('TACTICAL_MAP')}>
-                  Incident
-                </button>
-                <button type="button" role="tab" aria-selected={saferSubView === 'LIVE_MAP'} onClick={() => setSaferSubView('LIVE_MAP')}>
-                  City map
-                </button>
-                <button type="button" role="tab" aria-selected={saferSubView === 'HOTSPOTS'} onClick={() => setSaferSubView('HOTSPOTS')}>
-                  Area trends
-                </button>
+        {isPublic ? (
+          <>
+            <section className="stage" aria-label="Map and trends">
+              <div className="stage-head">
+                <div className="tabs view-tabs" role="tablist" aria-label="View">
+                  <button type="button" role="tab" aria-selected={saferSubView === 'MAP'} onClick={() => setSaferSubView('MAP')}>
+                    <Icon name="map" size={15} /> City map
+                  </button>
+                  <button type="button" role="tab" aria-selected={saferSubView === 'HOTSPOTS'} onClick={() => setSaferSubView('HOTSPOTS')}>
+                    <Icon name="chart" size={15} /> Area trends
+                  </button>
+                </div>
               </div>
-            )}
-            {body}
-          </div>
-        </section>
+              {saferSubView === 'HOTSPOTS' ? (
+                <div className="stage-scroll">
+                  <HotspotsView />
+                </div>
+              ) : (
+                <LiveOperationsMap
+                  incidents={incidents}
+                  selectedId={selected?.id}
+                  onSelectIncident={handleSelectIncident}
+                  onLifecycle={handleLifecycle}
+                  cameras={registryAll}
+                  onOpenCameraStream={handleOpenCameraModal}
+                  activePillar={activePillar}
+                  theme={theme}
+                />
+              )}
+            </section>
+            <aside className="detail-panel" aria-label="Incident details">
+              <div className="detail-inner">{incidentPanel}</div>
+            </aside>
+          </>
+        ) : (
+          <section className="detail" aria-label="Incident details">
+            <div className="detail-inner">{incidentPanel}</div>
+          </section>
+        )}
       </div>
 
       {activeCameraModal && selected && (

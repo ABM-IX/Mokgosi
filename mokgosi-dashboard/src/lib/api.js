@@ -128,3 +128,19 @@ export async function fetchSurvivorConsents(userId, accessToken) {
 }
 
 
+
+/**
+ * Every registered camera that is consented and online, for the city map. Responders only: the server
+ * never returns stream addresses to anyone else.
+ */
+export async function fetchCameras(accessToken) {
+  if (!accessToken) return [];
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/cameras`, { headers: authHeaders(accessToken) });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.cameras || [];
+  } catch {
+    return [];
+  }
+}

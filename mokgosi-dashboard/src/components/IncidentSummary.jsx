@@ -1,4 +1,5 @@
 import React from 'react';
+import PriorityGlyph from './PriorityGlyph.jsx';
 import { GBV_SAFETY_PROTOCOLS } from '../config/gbvProtocols.js';
 import {
   CATEGORY_LABEL,
@@ -48,6 +49,7 @@ export default function IncidentSummary({ incident, canAct, onLifecycle, onOpenE
   return (
     <section className="incident-head" aria-label="Incident summary">
       <div className="incident-title">
+        <PriorityGlyph priority={incident.priority} size={26} />
         <h1>{label(TRIGGER_LABEL, incident.trigger_type)}</h1>
         <span className={`tag tag-${priority}`}>{label(PRIORITY_LABEL, incident.priority)}</span>
         {incident.category && incident.category !== 'PERSONAL_SAFETY' && (

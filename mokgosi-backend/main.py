@@ -755,6 +755,24 @@ async def attach_acoustic_context(
         }
 
 
+@app.get("/api/v1/cameras")
+async def list_registered_cameras(_responder: str = Depends(require_responder)):
+    """Cameras that owners opted in and that are online, for the responder map. Responders only.
+
+    Stream addresses are not included: a responder gets one only for a camera within 150 m of an
+    incident they are handling (the nearby-cameras check), never for the whole city.
+    """
+    client = get_db()
+    rows = _result_data(
+        client.table("registered_cameras")
+        .select("id,owner_name,lat,lng,azimuth_deg,fov_deg,is_authorized,connection_status")
+        .eq("is_authorized", True)
+        .eq("connection_status", "ONLINE")
+    )
+    fields = ("id", "owner_name", "lat", "lng", "azimuth_deg", "fov_deg")
+    return {"cameras": [{k: row.get(k) for k in fields} for row in rows]}
+
+
 @app.post("/api/v1/incidents/{incident_id}/cctv-snapshot")
 async def capture_cctv_snapshot(
     incident_id: UUID,

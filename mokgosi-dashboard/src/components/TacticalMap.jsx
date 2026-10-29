@@ -1,18 +1,10 @@
 import React from 'react';
 import { Circle, MapContainer, Marker, Polygon, Polyline, Popup, TileLayer } from 'react-leaflet';
 import { PRIORITY_LABEL, TRIGGER_LABEL, coords, label } from '../lib/labels.js';
-import {
-  CAMERA_ICON,
-  CONE_STYLE,
-  PRIORITY_COLOR,
-  TILE_ATTRIBUTION,
-  TILE_URL,
-  computeCameraFovCone,
-  incidentIcon,
-} from '../lib/mapStyle.js';
+import { PRIORITY_COLOR, cameraIcon, computeCameraFovCone, coneStyle, incidentIcon, tileFor } from '../lib/mapStyle.js';
 
 /** One incident: where it started, the trail since, the 150 m search circle and opt-in cameras in it. */
-export default function TacticalMap({ incident, locations = [], cameras = [], onOpenCameraStream }) {
+export default function TacticalMap({ incident, locations = [], cameras = [], onOpenCameraStream, theme = 'light' }) {
   if (!incident) return null;
 
   const trailPoints = [
@@ -21,6 +13,7 @@ export default function TacticalMap({ incident, locations = [], cameras = [], on
   ];
   const latestPoint = trailPoints[trailPoints.length - 1];
   const color = PRIORITY_COLOR[incident.priority] || PRIORITY_COLOR.P3_VERIFY;
+  const tiles = tileFor(theme);
 
   return (
     <section className="card" aria-label="Location">
@@ -33,16 +26,11 @@ export default function TacticalMap({ incident, locations = [], cameras = [], on
       </div>
 
       <div className="map-frame">
-        <MapContainer
-          key={`${incident.id}-${latestPoint[0]}-${latestPoint[1]}`}
-          center={latestPoint}
-          zoom={16}
-          scrollWheelZoom={false}
-        >
-          <TileLayer attribution={TILE_ATTRIBUTION} url={TILE_URL} />
-          <Circle center={latestPoint} radius={150} pathOptions={{ color, weight: 1, dashArray: '4 4', fillOpacity: 0.04 }} />
+        <MapContainer key={`${incident.id}-${latestPoint[0]}-${latestPoint[1]}`} center={latestPoint} zoom={16} scrollWheelZoom={false}>
+          <TileLayer key={theme} url={tiles.url} attribution={tiles.attribution} subdomains={tiles.subdomains} />
+          <Circle center={latestPoint} radius={150} pathOptions={{ color, weight: 1, dashArray: '4 5', fillOpacity: 0.05 }} />
           {trailPoints.length > 1 && <Polyline positions={trailPoints} pathOptions={{ color, weight: 2.5, opacity: 0.8 }} />}
-          <Marker position={latestPoint} icon={incidentIcon(incident.priority, true)}>
+          <Marker position={latestPoint} icon={incidentIcon(incident, true)} zIndexOffset={2000}>
             <Popup>
               <div className="map-popup">
                 <strong>{label(TRIGGER_LABEL, incident.trigger_type)}</strong>
@@ -55,9 +43,9 @@ export default function TacticalMap({ incident, locations = [], cameras = [], on
             <React.Fragment key={cam.id}>
               <Polygon
                 positions={computeCameraFovCone(Number(cam.lat), Number(cam.lng), Number(cam.azimuth_deg ?? 180), Number(cam.fov_deg ?? 90))}
-                pathOptions={CONE_STYLE}
+                pathOptions={coneStyle(true)}
               />
-              <Marker position={[Number(cam.lat), Number(cam.lng)]} icon={CAMERA_ICON}>
+              <Marker position={[Number(cam.lat), Number(cam.lng)]} icon={cameraIcon(true)}>
                 <Popup>
                   <div className="map-popup">
                     <strong>{cam.owner_name}</strong>

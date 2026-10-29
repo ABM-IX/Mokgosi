@@ -173,3 +173,42 @@ test('No hard-coded demo responder password ships in the source', () => {
 });
 
 
+
+test('Markers carry priority by shape and glyph, not colour alone', () => {
+  const src = fs.readFileSync(path.join(srcDir, 'lib/mapStyle.js'), 'utf8');
+  assert.ok(src.includes('pin-critical') && src.includes('pin-high') && src.includes('pin-check'));
+  assert.ok(src.includes('is-unacked'), 'unacknowledged critical pins must pulse');
+  assert.ok(src.includes('<path') && src.includes('<circle'), 'pins draw a glyph');
+});
+
+test('Pulse animation has a reduced-motion fallback and both themes exist', () => {
+  const css = fs.readFileSync(path.join(srcDir, 'style.css'), 'utf8');
+  assert.ok(css.includes('prefers-reduced-motion'));
+  assert.ok(css.includes(":root[data-theme='dark']"));
+  assert.ok(css.includes('@keyframes pin-pulse'));
+});
+
+test('Camera registry shows on the map with nothing selected, and the endpoint is wired', () => {
+  const app = fs.readFileSync(path.join(srcDir, 'App.jsx'), 'utf8');
+  const api = fs.readFileSync(path.join(srcDir, 'lib/api.js'), 'utf8');
+  assert.ok(api.includes('/api/v1/cameras'));
+  assert.ok(app.includes('fetchCameras'));
+  assert.ok(app.includes('registryAll'));
+});
+
+test('Nearby-camera helper keeps only cameras within the radius, nearest first', async () => {
+  const { camerasNear, distanceMeters } = await import('../src/lib/geo.js');
+  const cams = [
+    { id: 'far', lat: -24.66, lng: 25.91 },
+    { id: 'b', lat: -24.6549, lng: 25.9089 },
+    { id: 'a', lat: -24.6548, lng: 25.9088 },
+  ];
+  const near = camerasNear(cams, -24.6548, 25.9088, 150);
+  assert.deepEqual(near.map((c) => c.id), ['a', 'b']);
+  assert.ok(distanceMeters(-24.6548, 25.9088, -24.6548, 25.9088) < 1);
+});
+
+test('Theme preference is stored defensively', () => {
+  const src = fs.readFileSync(path.join(srcDir, 'lib/theme.js'), 'utf8');
+  assert.ok(src.includes('try') && src.includes('mokgosi.theme'));
+});

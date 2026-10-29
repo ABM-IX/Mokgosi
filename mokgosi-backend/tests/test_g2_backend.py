@@ -408,3 +408,23 @@ def test_health_check_checks_db_without_crashing(g2_client):
     res = client.get("/health")
     assert res.status_code == 200
     assert "database_reachable" in res.json()
+
+
+def test_camera_registry_is_responder_only_and_hides_streams(g2_client):
+    client, fake = g2_client
+    fake.rows["registered_cameras"] = [
+        {"id": "c1", "owner_name": "Shop A", "lat": -24.65, "lng": 25.9, "azimuth_deg": 90, "fov_deg": 90,
+         "is_authorized": True, "connection_status": "ONLINE", "stream_url": "http://secret/stream"},
+        {"id": "c2", "owner_name": "Offline B", "lat": -24.6, "lng": 25.9, "azimuth_deg": 0, "fov_deg": 90,
+         "is_authorized": True, "connection_status": "OFFLINE", "stream_url": "http://x"},
+        {"id": "c3", "owner_name": "Not opted in", "lat": -24.7, "lng": 25.9, "azimuth_deg": 0, "fov_deg": 90,
+         "is_authorized": False, "connection_status": "ONLINE", "stream_url": "http://y"},
+    ]
+    assert client.get("/api/v1/cameras").status_code in (401, 403)
+    _, device_headers = register(client)
+    assert client.get("/api/v1/cameras", headers=device_headers).status_code in (401, 403)
+    res = client.get("/api/v1/cameras", headers=responder_headers())
+    assert res.status_code == 200
+    cams = res.json()["cameras"]
+    assert [c["id"] for c in cams] == ["c1"]
+    assert "stream_url" not in cams[0]

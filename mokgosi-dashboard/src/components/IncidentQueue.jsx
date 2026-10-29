@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { SLA_ACK_THRESHOLD_SECONDS } from '../lib/api.js';
+import PriorityGlyph from './PriorityGlyph.jsx';
 import {
   CATEGORY_LABEL,
   PRIORITY_CLASS,
@@ -84,33 +85,43 @@ export default function IncidentQueue({
             const unacknowledged = inc.status === 'CREATED' && elapsedSeconds >= SLA_ACK_THRESHOLD_SECONDS;
             const priority = PRIORITY_CLASS[inc.priority] || 'check';
             const gbvCategory = inc.category && inc.category.startsWith('GBV_');
+            const waiting = inc.status === 'CREATED';
+            const slaFill = Math.min(1, elapsedSeconds / Math.max(1, SLA_ACK_THRESHOLD_SECONDS));
             return (
               <li key={inc.id}>
                 <button
                   type="button"
-                  className={`queue-item prio-${priority} ${selectedId === inc.id ? 'is-selected' : ''}`}
+                  className={`queue-item prio-${priority} ${selectedId === inc.id ? 'is-selected' : ''} ${waiting && inc.priority === 'P1_CRITICAL' ? 'is-waiting' : ''}`}
                   aria-current={selectedId === inc.id ? 'true' : undefined}
                   onClick={() => onSelect(inc)}
                 >
-                  <span className="queue-item-top">
-                    <span className="queue-title">{label(TRIGGER_LABEL, inc.trigger_type)}</span>
-                    <span className="queue-age">{timeAgo(inc.created_at, nowMs)}</span>
+                  <span className="queue-glyph">
+                    <PriorityGlyph priority={inc.priority} size={22} />
                   </span>
-                  <span className="queue-meta">
-                    <span className={`tag tag-${priority}`}>{label(PRIORITY_LABEL, inc.priority)}</span>
-                    <span>{label(STATUS_LABEL, inc.status)}</span>
-                    <span>·</span>
-                    <span className="mono">{shortId(inc.user_id)}</span>
-                  </span>
-                  {(isCovert(inc) || gbvCategory) && (
-                    <span className="queue-meta">
-                      {isCovert(inc) && <span className="tag tag-covert">Do not contact</span>}
-                      {gbvCategory && <span>{label(CATEGORY_LABEL, inc.category)}</span>}
+                  <span className="queue-body">
+                    <span className="queue-item-top">
+                      <span className="queue-title">{label(TRIGGER_LABEL, inc.trigger_type)}</span>
+                      <span className="queue-age">{timeAgo(inc.created_at, nowMs)}</span>
                     </span>
-                  )}
-                  {unacknowledged && (
-                    <span className="queue-breach">Not acknowledged for {duration(elapsedSeconds)}</span>
-                  )}
+                    <span className="queue-meta">
+                      <span className={`tag tag-${priority}`}>{label(PRIORITY_LABEL, inc.priority)}</span>
+                      <span>{label(STATUS_LABEL, inc.status)}</span>
+                      <span aria-hidden="true">·</span>
+                      <span className="mono">{shortId(inc.user_id)}</span>
+                    </span>
+                    {(isCovert(inc) || gbvCategory) && (
+                      <span className="queue-meta">
+                        {isCovert(inc) && <span className="tag tag-covert">Do not contact</span>}
+                        {gbvCategory && <span>{label(CATEGORY_LABEL, inc.category)}</span>}
+                      </span>
+                    )}
+                    {waiting && (
+                      <span className={`sla ${unacknowledged ? 'is-breached' : ''}`} aria-hidden="true">
+                        <span className="sla-fill" style={{ width: `${Math.round(slaFill * 100)}%` }} />
+                      </span>
+                    )}
+                    {unacknowledged && <span className="queue-breach">Not acknowledged for {duration(elapsedSeconds)}</span>}
+                  </span>
                 </button>
               </li>
             );

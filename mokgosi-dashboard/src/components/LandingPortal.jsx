@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { BrandMark } from './Icons.jsx';
 
 /**
  * Public sign-in page. It says who the console is for and nothing about how the app on a
@@ -35,23 +36,29 @@ export default function LandingPortal({ onSignIn, error, demoMode = false }) {
 
   return (
     <main className="signin">
-      <section className="signin-intro">
-        <span className="wordmark">Mokgosi</span>
-        <h1>Responder console</h1>
-        <p>
-          For police officers, social workers and support organisations who respond to alerts raised
-          through the Mokgosi app in Botswana.
-        </p>
-        <ol className="signin-steps">
-          <li>Someone raises an alert from their phone, openly or discreetly.</li>
-          <li>Their trusted contacts are told, and the alert appears here.</li>
-          <li>You acknowledge it, follow the guidance for that kind of alert, and record what was done.</li>
-        </ol>
+      <section className="signin-hero">
+        <div className="signin-brand">
+          <BrandMark size={34} />
+          <span className="wordmark">Mokgosi</span>
+        </div>
+        <div className="signin-intro">
+          <h1>Every alert answered, every step on record.</h1>
+          <p>
+            The responder console for police officers, social workers and support organisations who
+            respond to alerts raised through the Mokgosi app in Botswana.
+          </p>
+          <ol className="signin-steps">
+            <li>Someone raises an alert from their phone, openly or discreetly.</li>
+            <li>Their trusted contacts are told, and the alert appears here.</li>
+            <li>You acknowledge it, follow the guidance for that kind of alert, and record what was done.</li>
+          </ol>
+        </div>
         <p className="signin-foot">
           Access is by invitation. If you need an account, ask the coordinator at your organisation.
         </p>
       </section>
 
+      <div className="signin-panel">
       <section className="signin-card" aria-labelledby="signin-heading">
         <h2 id="signin-heading">Sign in</h2>
         {displayError && (
@@ -92,6 +99,7 @@ export default function LandingPortal({ onSignIn, error, demoMode = false }) {
           </p>
         )}
       </section>
+      </div>
     </main>
   );
 }

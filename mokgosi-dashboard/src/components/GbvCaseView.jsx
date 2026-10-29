@@ -24,6 +24,7 @@ export default function GbvCaseView({
   logs = [],
   cameras = [],
   locations = [],
+  theme = 'light',
   onRecordReferral,
   onOpenDocket,
   onOpenCameraStream,
@@ -209,7 +210,7 @@ export default function GbvCaseView({
           </p>
         </section>
       ) : (
-        <TacticalMap incident={incident} locations={locations} cameras={cameras} onOpenCameraStream={onOpenCameraStream} />
+        <TacticalMap incident={incident} locations={locations} cameras={cameras} theme={theme} onOpenCameraStream={onOpenCameraStream} />
       )}
     </>
   );
